@@ -35,6 +35,15 @@ const SUPABASE_ANON_KEY = 'sb_publishable_yVyVs0Q2uk17BXvRafjZAQ_bz93EUfn';
 const CONFIGURED = SUPABASE_URL.indexOf('http') === 0 && SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
 const supabaseClient = CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
+async function authSignIn(email, password) {
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data;
+}
+async function authSignOut() {
+  await supabaseClient.auth.signOut();
+}
+
 async function cloudLoad() {
   const { data, error } = await supabaseClient.from('factory_data').select('data').eq('id', 'main').maybeSingle();
   if (error) throw error;
@@ -72,6 +81,7 @@ const Calendar = makeIcon('🗓');
 const User = makeIcon('👤');
 const FileText = makeIcon('📄');
 const Coins = makeIcon('💰');
+const Lock = makeIcon('🔒');
 
 /* ==================================================================== */
 /* セットアップ未完了時の案内画面                                          */
@@ -297,11 +307,86 @@ function StatCard({ icon: Icon, label, value, unit, tone = 'teal' }) {
 /* ------------------------------------------------------------------ */
 /* メインアプリ                                                         */
 /* ------------------------------------------------------------------ */
+function LockedNotice({ text }) {
+  return (
+    <Panel style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 8, color: C.textFaint, fontSize: 13 }}>
+      <Lock size={14} /> {text || 'この操作にはログインが必要です。右上の「ログイン」から入力してください。'}
+    </Panel>
+  );
+}
+
+function AuthBar({ session }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (session) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.textDim }}>
+        <User size={13} />
+        <span className="fm-mono">{session.user.email}</span>
+        <button
+          onClick={() => authSignOut()}
+          className="fm-btn"
+          style={{ background: C.panelAlt2, border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: 11 }}
+        >ログアウト</button>
+      </div>
+    );
+  }
+
+  const submit = async () => {
+    setErr('');
+    if (!email || !password) { setErr('メールアドレスとパスワードを入力してください。'); return; }
+    setBusy(true);
+    try {
+      await authSignIn(email, password);
+      setOpen(false);
+      setEmail(''); setPassword('');
+    } catch (e) {
+      setErr('ログインできませんでした。メールアドレス・パスワードをご確認ください。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="fm-btn"
+        style={{ background: C.panelAlt2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+      ><Lock size={12} /> ログイン</button>
+      {open && (
+        <div style={{ position: 'absolute', right: 0, top: '110%', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, width: 240, zIndex: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input className="fm-input" type="email" placeholder="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input className="fm-input" type="password" placeholder="パスワード" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} />
+            {err && <div style={{ color: C.red, fontSize: 11 }}>{err}</div>}
+            <PrimaryButton onClick={submit} style={{ justifyContent: 'center' }}>{busy ? 'ログイン中…' : 'ログイン'}</PrimaryButton>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved | error
   const [tab, setTab] = useState('dashboard');
+  const [session, setSession] = useState(null);
+  const isEditor = !!session;
+
+  /* --- ログイン状態の監視 --- */
+  useEffect(() => {
+    if (!CONFIGURED) return;
+    supabaseClient.auth.getSession().then(({ data: d }) => setSession(d.session));
+    const { data: sub } = supabaseClient.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => sub.subscription.unsubscribe();
+  }, []);
 
   /* --- 読み込み(Supabase) --- */
   const isFirstLoad = React.useRef(true);
@@ -425,14 +510,26 @@ function App() {
             <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>原反 → 溶着・裁断 → 検品 → たたみ 工程トラッカー</div>
           </div>
         </div>
-        <div className="fm-mono" style={{ fontSize: 11, color: C.textFaint, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{
-            width: 6, height: 6, borderRadius: 999,
-            background: saveStatus === 'saving' ? C.amber : saveStatus === 'error' ? C.red : C.green,
-          }} />
-          {saveStatus === 'saving' ? '保存中…' : saveStatus === 'error' ? '保存エラー' : '保存済み(共有データ)'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div className="fm-mono" style={{ fontSize: 11, color: C.textFaint, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                width: 6, height: 6, borderRadius: 999,
+                background: saveStatus === 'saving' ? C.amber : saveStatus === 'error' ? C.red : C.green,
+              }} />
+              {saveStatus === 'saving' ? '保存中…' : saveStatus === 'error' ? '保存エラー(接続を確認)' : 'クラウドと同期済み'}
+            </span>
+            <button onClick={loadFromCloud} className="fm-btn" style={{ background: C.panelAlt2, border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: 11 }}>更新</button>
+          </div>
+          <AuthBar session={session} />
         </div>
       </div>
+
+      {!isEditor && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: C.textDim }}>
+          <Lock size={13} /> 現在は閲覧のみのモードです。入力・編集を行うには右上からログインしてください。
+        </div>
+      )}
 
       {/* タブ */}
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 16, overflowX: 'auto' }}>
@@ -462,16 +559,16 @@ function App() {
         <DashboardTab data={data} lineById={lineById} orderById={orderById} lotById={lotById} orderStats={orderStats} salesOrderById={salesOrderById} salesOrderStats={salesOrderStats} />
       )}
       {tab === 'salesorders' && (
-        <SalesOrderTab data={data} addSalesOrder={addSalesOrder} removeSalesOrder={removeSalesOrder} salesOrderStats={salesOrderStats} />
+        <SalesOrderTab data={data} addSalesOrder={addSalesOrder} removeSalesOrder={removeSalesOrder} salesOrderStats={salesOrderStats} isEditor={isEditor} />
       )}
       {tab === 'plan' && (
-        <PlanTab data={data} orderStats={orderStats} addOrder={addOrder} removeOrder={removeOrder} lineById={lineById} lotById={lotById} addLine={addLine} removeLine={removeLine} salesOrderById={salesOrderById} />
+        <PlanTab data={data} orderStats={orderStats} addOrder={addOrder} removeOrder={removeOrder} lineById={lineById} lotById={lotById} addLine={addLine} removeLine={removeLine} salesOrderById={salesOrderById} isEditor={isEditor} />
       )}
       {tab === 'inventory' && (
-        <InventoryTab data={data} addLot={addLot} removeLot={removeLot} />
+        <InventoryTab data={data} addLot={addLot} removeLot={removeLot} isEditor={isEditor} />
       )}
       {tab === 'production' && (
-        <ProductionTab data={data} addRecord={addRecord} removeRecord={removeRecord} lineById={lineById} orderById={orderById} orderStats={orderStats} />
+        <ProductionTab data={data} addRecord={addRecord} removeRecord={removeRecord} lineById={lineById} orderById={orderById} orderStats={orderStats} isEditor={isEditor} />
       )}
       {tab === 'calendar' && (
         <CalendarTab data={data} lineById={lineById} orderById={orderById} orderStats={orderStats} />
@@ -648,7 +745,7 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
 /* ------------------------------------------------------------------ */
 /* 受注タブ                                                             */
 /* ------------------------------------------------------------------ */
-function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats }) {
+function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats, isEditor }) {
   const [form, setForm] = useState({ orderNo: '', customerName: '', productName: '', orderedQty: '', orderDate: todayStr(), dueDate: '' });
   const [err, setErr] = useState('');
 
@@ -672,20 +769,24 @@ function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Panel style={{ padding: 16 }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>受注を入力</div>
-        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>お客様からの注文をここに登録します。この後「生産計画」タブでラインへの割り当てを行います。</div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-          <Field label="受注番号"><input className="fm-input" value={form.orderNo} onChange={(e) => setForm({ ...form, orderNo: e.target.value })} placeholder="SO-0004" /></Field>
-          <Field label="得意先名"><input className="fm-input" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="例: D社" /></Field>
-          <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
-          <Field label="受注数量(枚)"><input type="number" className="fm-input" value={form.orderedQty} onChange={(e) => setForm({ ...form, orderedQty: e.target.value })} placeholder="5000" /></Field>
-          <Field label="受注日"><input type="date" className="fm-input" value={form.orderDate} onChange={(e) => setForm({ ...form, orderDate: e.target.value })} /></Field>
-          <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
-        </div>
-        {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
-        <PrimaryButton onClick={submit}><Plus size={14} /> 受注を追加</PrimaryButton>
-      </Panel>
+      {isEditor ? (
+        <Panel style={{ padding: 16 }}>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>受注を入力</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>お客様からの注文をここに登録します。この後「生産計画」タブでラインへの割り当てを行います。</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <Field label="受注番号"><input className="fm-input" value={form.orderNo} onChange={(e) => setForm({ ...form, orderNo: e.target.value })} placeholder="SO-0004" /></Field>
+            <Field label="得意先名"><input className="fm-input" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="例: D社" /></Field>
+            <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
+            <Field label="受注数量(枚)"><input type="number" className="fm-input" value={form.orderedQty} onChange={(e) => setForm({ ...form, orderedQty: e.target.value })} placeholder="5000" /></Field>
+            <Field label="受注日"><input type="date" className="fm-input" value={form.orderDate} onChange={(e) => setForm({ ...form, orderDate: e.target.value })} /></Field>
+            <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
+          </div>
+          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+          <PrimaryButton onClick={submit}><Plus size={14} /> 受注を追加</PrimaryButton>
+        </Panel>
+      ) : (
+        <LockedNotice text="受注の入力にはログインが必要です。" />
+      )}
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>受注一覧</div>
@@ -719,7 +820,7 @@ function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats 
                   <td style={{ padding: '8px' }}>
                     <Badge tone={tone}>{status === '完了' ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={11} />完了</span> : status}</Badge>
                   </td>
-                  <td style={{ padding: '8px' }}><IconBtn onClick={() => removeSalesOrder(so.id)} title="削除" danger /></td>
+                  <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeSalesOrder(so.id)} title="削除" danger />}</td>
                 </tr>
               );
             })}
@@ -733,7 +834,7 @@ function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats 
 /* ------------------------------------------------------------------ */
 /* 生産計画タブ                                                         */
 /* ------------------------------------------------------------------ */
-function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, addLine, removeLine, salesOrderById }) {
+function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, addLine, removeLine, salesOrderById, isEditor }) {
   const [form, setForm] = useState({ planNo: '', salesOrderId: '', productName: '', lineId: data.lines[0]?.id || '', lotId: '', targetQty: '', dueDate: '' });
   const [newLine, setNewLine] = useState('');
   const [err, setErr] = useState('');
@@ -769,35 +870,39 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Panel style={{ padding: 16 }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>生産計画を追加</div>
-        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注に対してライン・原反・目標数量を割り当てます。受注と紐づけない在庫生産もOK。</div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-          <Field label="紐づく受注(任意)">
-            <select className="fm-input" value={form.salesOrderId} onChange={(e) => onPickSalesOrder(e.target.value)}>
-              <option value="">受注と紐づけない</option>
-              {data.salesOrders.map((so) => <option key={so.id} value={so.id}>{so.orderNo} - {so.customerName} / {so.productName}</option>)}
-            </select>
-          </Field>
-          <Field label="計画番号"><input className="fm-input" value={form.planNo} onChange={(e) => setForm({ ...form, planNo: e.target.value })} placeholder="MO-0004" /></Field>
-          <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
-          <Field label="ライン">
-            <select className="fm-input" value={form.lineId} onChange={(e) => setForm({ ...form, lineId: e.target.value })}>
-              {data.lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </Field>
-          <Field label="使用原反(任意)">
-            <select className="fm-input" value={form.lotId} onChange={(e) => setForm({ ...form, lotId: e.target.value })}>
-              <option value="">未指定</option>
-              {data.lots.map((l) => <option key={l.id} value={l.id}>{l.lotNo} ({l.materialName})</option>)}
-            </select>
-          </Field>
-          <Field label="目標数量(枚)"><input type="number" className="fm-input" value={form.targetQty} onChange={(e) => setForm({ ...form, targetQty: e.target.value })} placeholder="5000" /></Field>
-          <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
-        </div>
-        {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
-        <PrimaryButton onClick={submit}><Plus size={14} /> 計画を追加</PrimaryButton>
-      </Panel>
+      {isEditor ? (
+        <Panel style={{ padding: 16 }}>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>生産計画を追加</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注に対してライン・原反・目標数量を割り当てます。受注と紐づけない在庫生産もOK。</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <Field label="紐づく受注(任意)">
+              <select className="fm-input" value={form.salesOrderId} onChange={(e) => onPickSalesOrder(e.target.value)}>
+                <option value="">受注と紐づけない</option>
+                {data.salesOrders.map((so) => <option key={so.id} value={so.id}>{so.orderNo} - {so.customerName} / {so.productName}</option>)}
+              </select>
+            </Field>
+            <Field label="計画番号"><input className="fm-input" value={form.planNo} onChange={(e) => setForm({ ...form, planNo: e.target.value })} placeholder="MO-0004" /></Field>
+            <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
+            <Field label="ライン">
+              <select className="fm-input" value={form.lineId} onChange={(e) => setForm({ ...form, lineId: e.target.value })}>
+                {data.lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </Field>
+            <Field label="使用原反(任意)">
+              <select className="fm-input" value={form.lotId} onChange={(e) => setForm({ ...form, lotId: e.target.value })}>
+                <option value="">未指定</option>
+                {data.lots.map((l) => <option key={l.id} value={l.id}>{l.lotNo} ({l.materialName})</option>)}
+              </select>
+            </Field>
+            <Field label="目標数量(枚)"><input type="number" className="fm-input" value={form.targetQty} onChange={(e) => setForm({ ...form, targetQty: e.target.value })} placeholder="5000" /></Field>
+            <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
+          </div>
+          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+          <PrimaryButton onClick={submit}><Plus size={14} /> 計画を追加</PrimaryButton>
+        </Panel>
+      ) : (
+        <LockedNotice text="生産計画の入力にはログインが必要です。" />
+      )}
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -839,7 +944,7 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
                   <td style={{ padding: '8px' }}>
                     <Badge tone={tone}>{done ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={11} />完了</span> : status}</Badge>
                   </td>
-                  <td style={{ padding: '8px' }}><IconBtn onClick={() => removeOrder(o.id)} title="削除" danger /></td>
+                  <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeOrder(o.id)} title="削除" danger />}</td>
                 </tr>
               );
             })}
@@ -847,21 +952,23 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
         </table>
       </Panel>
 
-      <Panel style={{ padding: 16 }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>ライン管理</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          {data.lines.map((l) => (
-            <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 999, padding: '4px 6px 4px 12px', fontSize: 13 }}>
-              {l.name}
-              <IconBtn onClick={() => removeLine(l.id)} title="ライン削除" danger />
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 8, maxWidth: 340 }}>
-          <input className="fm-input" placeholder="新しいライン名 (例: ライン4)" value={newLine} onChange={(e) => setNewLine(e.target.value)} />
-          <PrimaryButton onClick={() => { if (newLine.trim()) { addLine(newLine.trim()); setNewLine(''); } }}><Plus size={14} /> 追加</PrimaryButton>
-        </div>
-      </Panel>
+      {isEditor && (
+        <Panel style={{ padding: 16 }}>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>ライン管理</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            {data.lines.map((l) => (
+              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 999, padding: '4px 6px 4px 12px', fontSize: 13 }}>
+                {l.name}
+                <IconBtn onClick={() => removeLine(l.id)} title="ライン削除" danger />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, maxWidth: 340 }}>
+            <input className="fm-input" placeholder="新しいライン名 (例: ライン4)" value={newLine} onChange={(e) => setNewLine(e.target.value)} />
+            <PrimaryButton onClick={() => { if (newLine.trim()) { addLine(newLine.trim()); setNewLine(''); } }}><Plus size={14} /> 追加</PrimaryButton>
+          </div>
+        </Panel>
+      )}
     </div>
   );
 }
@@ -869,7 +976,7 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
 /* ------------------------------------------------------------------ */
 /* 原反在庫タブ                                                         */
 /* ------------------------------------------------------------------ */
-function InventoryTab({ data, addLot, removeLot }) {
+function InventoryTab({ data, addLot, removeLot, isEditor }) {
   const [form, setForm] = useState({
     lotNo: '', materialName: '', widthMm: '', initialLength: '', remainingLength: '', unit: 'm', receivedDate: todayStr(),
     currency: 'JPY', unitPriceForeign: '', exchangeRate: '1',
@@ -902,42 +1009,46 @@ function InventoryTab({ data, addLot, removeLot }) {
         <StatCard icon={Package} label="ロット数" value={data.lots.length} unit="件" tone="teal" />
       </div>
 
-      <Panel style={{ padding: 16 }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>原反ロットを追加</div>
-        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>仕入れ時の通貨・単価・為替レートを記録すると、円換算コストが自動計算されます。</div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-          <Field label="ロット番号"><input className="fm-input" value={form.lotNo} onChange={(e) => setForm({ ...form, lotNo: e.target.value })} placeholder="PP-20260727" /></Field>
-          <Field label="原反名"><input className="fm-input" value={form.materialName} onChange={(e) => setForm({ ...form, materialName: e.target.value })} placeholder="PP不織布 20g/m²" /></Field>
-          <Field label="幅(mm)"><input type="number" className="fm-input" value={form.widthMm} onChange={(e) => setForm({ ...form, widthMm: e.target.value })} placeholder="1600" /></Field>
-          <Field label="初期数量"><input type="number" className="fm-input" value={form.initialLength} onChange={(e) => setForm({ ...form, initialLength: e.target.value })} placeholder="3000" /></Field>
-          <Field label="単位">
-            <select className="fm-input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
-              <option value="m">m</option>
-              <option value="kg">kg</option>
-              <option value="roll">本</option>
-            </select>
-          </Field>
-          <Field label="入荷日"><input type="date" className="fm-input" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} /></Field>
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10, paddingTop: 10, borderTop: `1px dashed ${C.border}` }}>
-          <Field label="仕入通貨">
-            <select className="fm-input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value, exchangeRate: e.target.value === 'JPY' ? '1' : form.exchangeRate })}>
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </Field>
-          <Field label={`単価(${form.currency}/${form.unit || 'm'})`}><input type="number" step="0.01" className="fm-input" value={form.unitPriceForeign} onChange={(e) => setForm({ ...form, unitPriceForeign: e.target.value })} placeholder="0.42" /></Field>
-          <Field label="為替レート(1外貨=何円)">
-            <input type="number" step="0.01" className="fm-input" value={form.currency === 'JPY' ? 1 : form.exchangeRate} disabled={form.currency === 'JPY'} onChange={(e) => setForm({ ...form, exchangeRate: e.target.value })} placeholder="150" />
-          </Field>
-          <Field label="円換算単価(自動計算)">
-            <div className="fm-mono" style={{ padding: '7px 10px', color: C.teal, fontSize: 13 }}>
-              {(Number(form.unitPriceForeign || 0) * (form.currency === 'JPY' ? 1 : Number(form.exchangeRate || 1))).toFixed(2)} 円
-            </div>
-          </Field>
-        </div>
-        {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
-        <PrimaryButton onClick={submit}><Plus size={14} /> ロットを追加</PrimaryButton>
-      </Panel>
+      {isEditor ? (
+        <Panel style={{ padding: 16 }}>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>原反ロットを追加</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>仕入れ時の通貨・単価・為替レートを記録すると、円換算コストが自動計算されます。</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <Field label="ロット番号"><input className="fm-input" value={form.lotNo} onChange={(e) => setForm({ ...form, lotNo: e.target.value })} placeholder="PP-20260727" /></Field>
+            <Field label="原反名"><input className="fm-input" value={form.materialName} onChange={(e) => setForm({ ...form, materialName: e.target.value })} placeholder="PP不織布 20g/m²" /></Field>
+            <Field label="幅(mm)"><input type="number" className="fm-input" value={form.widthMm} onChange={(e) => setForm({ ...form, widthMm: e.target.value })} placeholder="1600" /></Field>
+            <Field label="初期数量"><input type="number" className="fm-input" value={form.initialLength} onChange={(e) => setForm({ ...form, initialLength: e.target.value })} placeholder="3000" /></Field>
+            <Field label="単位">
+              <select className="fm-input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
+                <option value="m">m</option>
+                <option value="kg">kg</option>
+                <option value="roll">本</option>
+              </select>
+            </Field>
+            <Field label="入荷日"><input type="date" className="fm-input" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10, paddingTop: 10, borderTop: `1px dashed ${C.border}` }}>
+            <Field label="仕入通貨">
+              <select className="fm-input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value, exchangeRate: e.target.value === 'JPY' ? '1' : form.exchangeRate })}>
+                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Field>
+            <Field label={`単価(${form.currency}/${form.unit || 'm'})`}><input type="number" step="0.01" className="fm-input" value={form.unitPriceForeign} onChange={(e) => setForm({ ...form, unitPriceForeign: e.target.value })} placeholder="0.42" /></Field>
+            <Field label="為替レート(1外貨=何円)">
+              <input type="number" step="0.01" className="fm-input" value={form.currency === 'JPY' ? 1 : form.exchangeRate} disabled={form.currency === 'JPY'} onChange={(e) => setForm({ ...form, exchangeRate: e.target.value })} placeholder="150" />
+            </Field>
+            <Field label="円換算単価(自動計算)">
+              <div className="fm-mono" style={{ padding: '7px 10px', color: C.teal, fontSize: 13 }}>
+                {(Number(form.unitPriceForeign || 0) * (form.currency === 'JPY' ? 1 : Number(form.exchangeRate || 1))).toFixed(2)} 円
+              </div>
+            </Field>
+          </div>
+          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+          <PrimaryButton onClick={submit}><Plus size={14} /> ロットを追加</PrimaryButton>
+        </Panel>
+      ) : (
+        <LockedNotice text="原反ロットの入力にはログインが必要です。" />
+      )}
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>原反在庫一覧</div>
@@ -971,7 +1082,7 @@ function InventoryTab({ data, addLot, removeLot }) {
                   </td>
                   <td className="fm-mono" style={{ padding: '8px', color: C.amber }}>{unitCost.toFixed(2)}円/{l.unit}</td>
                   <td className="fm-mono" style={{ padding: '8px' }}>{l.receivedDate}</td>
-                  <td style={{ padding: '8px' }}><IconBtn onClick={() => removeLot(l.id)} title="削除" danger /></td>
+                  <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeLot(l.id)} title="削除" danger />}</td>
                 </tr>
               );
             })}
@@ -985,7 +1096,7 @@ function InventoryTab({ data, addLot, removeLot }) {
 /* ------------------------------------------------------------------ */
 /* 生産実績・WIPタブ                                                    */
 /* ------------------------------------------------------------------ */
-function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, orderStats }) {
+function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, orderStats, isEditor }) {
   const [form, setForm] = useState({
     date: todayStr(), orderId: data.orders[0]?.id || '', worker: '', machineUpQty: '', inspectedQty: '', foldedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '',
   });
@@ -1039,36 +1150,40 @@ function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, ord
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Panel style={{ padding: 16 }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>実績を入力</div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-          <Field label="日付"><input type="date" className="fm-input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
-          <Field label="生産計画">
-            <select className="fm-input" value={form.orderId} onChange={(e) => setForm({ ...form, orderId: e.target.value })}>
-              {data.orders.map((o) => <option key={o.id} value={o.id}>{o.planNo} - {o.productName} ({lineById(o.lineId)?.name})</option>)}
-            </select>
-          </Field>
-          <Field label="担当者">
-            <input list="worker-options" className="fm-input" value={form.worker} onChange={(e) => setForm({ ...form, worker: e.target.value })} placeholder="例: 田中" />
-            <datalist id="worker-options">
-              {workerOptions.map((w) => <option key={w} value={w} />)}
-            </datalist>
-          </Field>
-          <Field label="機械上がり数(枚)"><input type="number" className="fm-input" value={form.machineUpQty} onChange={(e) => setForm({ ...form, machineUpQty: e.target.value })} placeholder="500" /></Field>
-          <Field label="検品済み数(枚)"><input type="number" className="fm-input" value={form.inspectedQty} onChange={(e) => setForm({ ...form, inspectedQty: e.target.value })} placeholder="480" /></Field>
-          <Field label="たたみ済み数(枚)"><input type="number" className="fm-input" value={form.foldedQty} onChange={(e) => setForm({ ...form, foldedQty: e.target.value })} placeholder="450" /></Field>
-          <Field label="不良数(枚)"><input type="number" className="fm-input" value={form.defectQty} onChange={(e) => setForm({ ...form, defectQty: e.target.value })} placeholder="10" /></Field>
-          <Field label="不良原因">
-            <select className="fm-input" value={form.defectCause} onChange={(e) => setForm({ ...form, defectCause: e.target.value })}>
-              <option value="">選択してください</option>
-              {DEFECT_CAUSES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </Field>
-          <Field label="原反使用量(任意)"><input type="number" className="fm-input" value={form.materialUsedLength} onChange={(e) => setForm({ ...form, materialUsedLength: e.target.value })} placeholder="30" /></Field>
-        </div>
-        {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
-        <PrimaryButton onClick={submit}><Plus size={14} /> 実績を記録</PrimaryButton>
-      </Panel>
+      {isEditor ? (
+        <Panel style={{ padding: 16 }}>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>実績を入力</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <Field label="日付"><input type="date" className="fm-input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
+            <Field label="生産計画">
+              <select className="fm-input" value={form.orderId} onChange={(e) => setForm({ ...form, orderId: e.target.value })}>
+                {data.orders.map((o) => <option key={o.id} value={o.id}>{o.planNo} - {o.productName} ({lineById(o.lineId)?.name})</option>)}
+              </select>
+            </Field>
+            <Field label="担当者">
+              <input list="worker-options" className="fm-input" value={form.worker} onChange={(e) => setForm({ ...form, worker: e.target.value })} placeholder="例: 田中" />
+              <datalist id="worker-options">
+                {workerOptions.map((w) => <option key={w} value={w} />)}
+              </datalist>
+            </Field>
+            <Field label="機械上がり数(枚)"><input type="number" className="fm-input" value={form.machineUpQty} onChange={(e) => setForm({ ...form, machineUpQty: e.target.value })} placeholder="500" /></Field>
+            <Field label="検品済み数(枚)"><input type="number" className="fm-input" value={form.inspectedQty} onChange={(e) => setForm({ ...form, inspectedQty: e.target.value })} placeholder="480" /></Field>
+            <Field label="たたみ済み数(枚)"><input type="number" className="fm-input" value={form.foldedQty} onChange={(e) => setForm({ ...form, foldedQty: e.target.value })} placeholder="450" /></Field>
+            <Field label="不良数(枚)"><input type="number" className="fm-input" value={form.defectQty} onChange={(e) => setForm({ ...form, defectQty: e.target.value })} placeholder="10" /></Field>
+            <Field label="不良原因">
+              <select className="fm-input" value={form.defectCause} onChange={(e) => setForm({ ...form, defectCause: e.target.value })}>
+                <option value="">選択してください</option>
+                {DEFECT_CAUSES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Field>
+            <Field label="原反使用量(任意)"><input type="number" className="fm-input" value={form.materialUsedLength} onChange={(e) => setForm({ ...form, materialUsedLength: e.target.value })} placeholder="30" /></Field>
+          </div>
+          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+          <PrimaryButton onClick={submit}><Plus size={14} /> 実績を記録</PrimaryButton>
+        </Panel>
+      ) : (
+        <LockedNotice text="実績の入力にはログインが必要です。" />
+      )}
 
       {/* 計画別WIPサマリ */}
       <Panel style={{ padding: 16 }}>
@@ -1149,7 +1264,7 @@ function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, ord
                 <td className="fm-mono" style={{ padding: '8px' }}>{fmt(r.inspectedQty)}</td>
                 <td className="fm-mono" style={{ padding: '8px' }}>{fmt(r.foldedQty)}</td>
                 <td className="fm-mono" style={{ padding: '8px', color: r.defectQty > 0 ? C.red : C.textDim }}>{fmt(r.defectQty)}</td>
-                <td style={{ padding: '8px' }}><IconBtn onClick={() => removeRecord(r.id)} title="削除" danger /></td>
+                <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeRecord(r.id)} title="削除" danger />}</td>
               </tr>
             ))}
           </tbody>

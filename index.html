@@ -1,104 +1,8 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>不織布加工 生産管理システム</title>
-
-<!-- React / Babel(JSXをブラウザ内で変換) / Supabase クライアント -->
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-
-<style>
-  html, body { margin: 0; padding: 0; background: #121417; }
-  #root { max-width: 1200px; margin: 0 auto; padding: 16px; }
-</style>
-</head>
-<body>
-<div id="root">
-  <div style="color:#8D96A3; font-family: sans-serif; padding: 40px; text-align:center;">読み込み中...</div>
-</div>
-
-<script type="text/babel" data-presets="react,env">
-const { useState, useEffect, useMemo, useCallback } = React;
-
-/* ==================================================================== */
-/* ここから下は「クラウド接続の設定」です。                                */
-/* Supabaseの無料プロジェクトを作成し、URLとanonキーをここに貼り付けてください。 */
-/* 手順はこのファイルと一緒に渡されたセットアップ手順を参照してください。       */
-/* ==================================================================== */
-const SUPABASE_URL = 'https://jjvkumoqkoooapcmdbld.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_yVyVs0Q2uk17BXvRafjZAQ_bz93EUfn';
-
-const CONFIGURED = SUPABASE_URL.indexOf('http') === 0 && SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
-const supabaseClient = CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-
-async function authSignIn(email, password) {
-  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  return data;
-}
-async function authSignOut() {
-  await supabaseClient.auth.signOut();
-}
-
-async function cloudLoad() {
-  const { data, error } = await supabaseClient.from('factory_data').select('data').eq('id', 'main').maybeSingle();
-  if (error) throw error;
-  return data ? data.data : null;
-}
-async function cloudSave(obj) {
-  const { error } = await supabaseClient.from('factory_data').upsert({ id: 'main', data: obj, updated_at: new Date().toISOString() });
-  if (error) throw error;
-}
-
-/* ==================================================================== */
-/* アイコン(lucide-reactの代わりに絵文字ベースの軽量シムを使用)             */
-/* ==================================================================== */
-function makeIcon(glyph) {
-  return function IconGlyph({ size = 16, color, style, className }) {
-    return React.createElement('span', {
-      className,
-      style: { fontSize: size, lineHeight: 1, display: 'inline-block', ...style },
-    }, glyph);
-  };
-}
-const Activity = makeIcon('📈');
-const Package = makeIcon('📦');
-const ClipboardList = makeIcon('📋');
-const AlertTriangle = makeIcon('⚠️');
-const CheckCircle2 = makeIcon('✅');
-const Plus = makeIcon('＋');
-const Trash2 = makeIcon('🗑');
-const Gauge = makeIcon('🧭');
-const Loader2 = makeIcon('⏳');
-const Factory = makeIcon('🏭');
-const Scissors = makeIcon('✂️');
-const ChevronRight = makeIcon('›');
-const Calendar = makeIcon('🗓');
-const User = makeIcon('👤');
-const FileText = makeIcon('📄');
-const Coins = makeIcon('💰');
-const Lock = makeIcon('🔒');
-
-/* ==================================================================== */
-/* セットアップ未完了時の案内画面                                          */
-/* ==================================================================== */
-function SetupGuide() {
-  return (
-    <div style={{ maxWidth: 640, margin: '40px auto', background: '#20242B', border: '1px solid #383F4A', borderRadius: 12, padding: 28, color: '#E9ECF1', fontFamily: 'sans-serif', lineHeight: 1.7 }}>
-      <h2 style={{ marginTop: 0 }}>⚙️ クラウド接続の設定が必要です</h2>
-      <p style={{ color: '#8D96A3', fontSize: 14 }}>
-        このファイルの先頭付近にある <code>SUPABASE_URL</code> と <code>SUPABASE_ANON_KEY</code> を、
-        あなたのSupabaseプロジェクトの値に書き換えてから開き直してください。
-      </p>
-      <p style={{ color: '#8D96A3', fontSize: 14 }}>設定手順は、この生産管理アプリと一緒にお渡しした「セットアップ手順」をご覧ください。</p>
-    </div>
-  );
-}
-
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Activity, Package, ClipboardList, AlertTriangle, CheckCircle2, Plus, Trash2,
+  Gauge, Loader2, Factory, Scissors, ChevronRight, Calendar, User, FileText, Coins, Pencil,
+} from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
 /* トークン(色・タイポグラフィ)                                        */
@@ -168,6 +72,18 @@ const CURRENCIES = ['JPY', 'USD', 'EUR', 'CNY'];
 const lotUnitCostJPY = (lot) => (lot.currency === 'JPY' ? num(lot.unitPriceForeign) : num(lot.unitPriceForeign) * num(lot.exchangeRate || 1));
 const lotTotalCostJPY = (lot) => lotUnitCostJPY(lot) * num(lot.initialLength);
 
+// 計画の期間(開始日が無い過去データは終了日を1日だけの期間として扱う)
+const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const planStart = (o) => o.startDate || o.dueDate;
+const planEnd = (o) => o.dueDate || o.startDate;
+const planSpanDays = (o) => {
+  const s = parseDate(planStart(o));
+  const e = parseDate(planEnd(o));
+  return Math.max(1, Math.round((e - s) / 86400000) + 1);
+};
+const planActiveOn = (o, dateStr) => dateStr >= planStart(o) && dateStr <= planEnd(o);
+const planDailyTarget = (o) => num(o.targetQty) / planSpanDays(o);
+
 // 過去バージョンで保存されたデータ(新しい項目が無い場合)でも安全に読み込めるよう補完する
 const normalizeData = (loaded) => {
   if (!loaded || typeof loaded !== 'object') return DEFAULT_DATA;
@@ -199,9 +115,9 @@ const DEFAULT_DATA = {
     { id: 'LOT3', lotNo: 'PP-20260715', materialName: 'PP不織布 15g/m²', widthMm: 1000, initialLength: 1500, remainingLength: 210, unit: 'm', receivedDate: '2026-07-15', currency: 'JPY', unitPriceForeign: 58, exchangeRate: 1 },
   ],
   orders: [
-    { id: 'O1', planNo: 'MO-0001', salesOrderId: 'SO1', productName: 'マスク用インナーシート', lineId: 'L1', lotId: 'LOT1', targetQty: 5000, dueDate: '2026-07-30' },
-    { id: 'O2', planNo: 'MO-0002', salesOrderId: 'SO2', productName: 'エアフィルターシート', lineId: 'L2', lotId: 'LOT2', targetQty: 3000, dueDate: '2026-08-02' },
-    { id: 'O3', planNo: 'MO-0003', salesOrderId: 'SO3', productName: '養生シート小', lineId: 'L3', lotId: 'LOT3', targetQty: 1500, dueDate: '2026-07-29' },
+    { id: 'O1', planNo: 'MO-0001', salesOrderId: 'SO1', productName: 'マスク用インナーシート', lineId: 'L1', lotId: 'LOT1', targetQty: 5000, startDate: '2026-07-24', dueDate: '2026-07-30' },
+    { id: 'O2', planNo: 'MO-0002', salesOrderId: 'SO2', productName: 'エアフィルターシート', lineId: 'L2', lotId: 'LOT2', targetQty: 3000, startDate: '2026-07-27', dueDate: '2026-08-02' },
+    { id: 'O3', planNo: 'MO-0003', salesOrderId: 'SO3', productName: '養生シート小', lineId: 'L3', lotId: 'LOT3', targetQty: 1500, startDate: '2026-07-24', dueDate: '2026-07-29' },
   ],
   records: [
     { id: 'R1', date: todayStr(), lineId: 'L1', orderId: 'O1', worker: '田中', machineUpQty: 700, inspectedQty: 600, foldedQty: 500, defectQty: 20, defectCause: '溶着不良', defectNote: '', materialUsedLength: 50 },
@@ -245,7 +161,7 @@ function Panel({ children, style, ...rest }) {
   );
 }
 
-function IconBtn({ onClick, title, danger }) {
+function IconBtn({ onClick, title, danger, icon: Icon = Trash2 }) {
   return (
     <button
       onClick={onClick}
@@ -258,7 +174,7 @@ function IconBtn({ onClick, title, danger }) {
       onMouseEnter={(e) => { e.currentTarget.style.background = danger ? C.redDim : C.panelAlt2; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
-      <Trash2 size={15} />
+      <Icon size={15} />
     </button>
   );
 }
@@ -307,124 +223,42 @@ function StatCard({ icon: Icon, label, value, unit, tone = 'teal' }) {
 /* ------------------------------------------------------------------ */
 /* メインアプリ                                                         */
 /* ------------------------------------------------------------------ */
-function LockedNotice({ text }) {
-  return (
-    <Panel style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 8, color: C.textFaint, fontSize: 13 }}>
-      <Lock size={14} /> {text || 'この操作にはログインが必要です。右上の「ログイン」から入力してください。'}
-    </Panel>
-  );
-}
-
-function AuthBar({ session }) {
-  const [open, setOpen] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  if (session) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.textDim }}>
-        <User size={13} />
-        <span className="fm-mono">{session.user.email}</span>
-        <button
-          onClick={() => authSignOut()}
-          className="fm-btn"
-          style={{ background: C.panelAlt2, border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: 11 }}
-        >ログアウト</button>
-      </div>
-    );
-  }
-
-  const submit = async () => {
-    setErr('');
-    if (!email || !password) { setErr('メールアドレスとパスワードを入力してください。'); return; }
-    setBusy(true);
-    try {
-      await authSignIn(email, password);
-      setOpen(false);
-      setEmail(''); setPassword('');
-    } catch (e) {
-      setErr('ログインできませんでした。メールアドレス・パスワードをご確認ください。');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="fm-btn"
-        style={{ background: C.panelAlt2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
-      ><Lock size={12} /> ログイン</button>
-      {open && (
-        <div style={{ position: 'absolute', right: 0, top: '110%', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, width: 240, zIndex: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input className="fm-input" type="email" placeholder="メールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} />
-            <input className="fm-input" type="password" placeholder="パスワード" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} />
-            {err && <div style={{ color: C.red, fontSize: 11 }}>{err}</div>}
-            <PrimaryButton onClick={submit} style={{ justifyContent: 'center' }}>{busy ? 'ログイン中…' : 'ログイン'}</PrimaryButton>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function App() {
+export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved | error
   const [tab, setTab] = useState('dashboard');
-  const [session, setSession] = useState(null);
-  const isEditor = !!session;
 
-  /* --- ログイン状態の監視 --- */
+  /* --- 読み込み --- */
   useEffect(() => {
-    if (!CONFIGURED) return;
-    supabaseClient.auth.getSession().then(({ data: d }) => setSession(d.session));
-    const { data: sub } = supabaseClient.auth.onAuthStateChange((_event, sess) => setSession(sess));
-    return () => sub.subscription.unsubscribe();
+    (async () => {
+      try {
+        const res = await window.storage.get('factory-data', true);
+        if (res && res.value) {
+          setData(normalizeData(JSON.parse(res.value)));
+        } else {
+          setData(DEFAULT_DATA);
+        }
+      } catch (e) {
+        setData(DEFAULT_DATA);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
-  /* --- 読み込み(Supabase) --- */
-  const isFirstLoad = React.useRef(true);
-  const loadFromCloud = useCallback(async () => {
-    try {
-      const remote = await cloudLoad();
-      setData(normalizeData(remote));
-      setSaveStatus('saved');
-    } catch (e) {
-      console.error(e);
-      setSaveStatus('error');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadFromCloud(); }, [loadFromCloud]);
-
-  // 他の人の更新を定期的に取り込む(10秒ごと)
-  useEffect(() => {
-    const iv = setInterval(() => { if (!loading) loadFromCloud(); }, 10000);
-    return () => clearInterval(iv);
-  }, [loading, loadFromCloud]);
-
-  /* --- 保存(デバウンス) --- */
+  /* --- 保存 (デバウンス) --- */
   useEffect(() => {
     if (loading || !data) return;
-    if (isFirstLoad.current) { isFirstLoad.current = false; return; }
     setSaveStatus('saving');
     const t = setTimeout(async () => {
       try {
-        await cloudSave(data);
-        setSaveStatus('saved');
+        const ok = await window.storage.set('factory-data', JSON.stringify(data), true);
+        setSaveStatus(ok ? 'saved' : 'error');
       } catch (e) {
-        console.error(e);
         setSaveStatus('error');
       }
-    }, 600);
+    }, 500);
     return () => clearTimeout(t);
   }, [data, loading]);
 
@@ -457,12 +291,15 @@ function App() {
   const removeLine = (id) => setData((d) => ({ ...d, lines: d.lines.filter((l) => l.id !== id) }));
 
   const addSalesOrder = (so) => setData((d) => ({ ...d, salesOrders: [...d.salesOrders, { id: uid('SO'), ...so }] }));
+  const updateSalesOrder = (id, patch) => setData((d) => ({ ...d, salesOrders: d.salesOrders.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
   const removeSalesOrder = (id) => setData((d) => ({ ...d, salesOrders: d.salesOrders.filter((s) => s.id !== id) }));
 
   const addLot = (lot) => setData((d) => ({ ...d, lots: [...d.lots, { id: uid('LOT'), ...lot }] }));
+  const updateLot = (id, patch) => setData((d) => ({ ...d, lots: d.lots.map((l) => (l.id === id ? { ...l, ...patch } : l)) }));
   const removeLot = (id) => setData((d) => ({ ...d, lots: d.lots.filter((l) => l.id !== id) }));
 
   const addOrder = (order) => setData((d) => ({ ...d, orders: [...d.orders, { id: uid('O'), ...order }] }));
+  const updateOrder = (id, patch) => setData((d) => ({ ...d, orders: d.orders.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
   const removeOrder = (id) => setData((d) => ({ ...d, orders: d.orders.filter((o) => o.id !== id), records: d.records.filter((r) => r.orderId !== id) }));
 
   const addRecord = (rec) => setData((d) => {
@@ -473,6 +310,7 @@ function App() {
     }
     return { ...d, lots, records: [...d.records, { id: uid('R'), ...rec }] };
   });
+  const updateRecord = (id, patch) => setData((d) => ({ ...d, records: d.records.map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
   const removeRecord = (id) => setData((d) => ({ ...d, records: d.records.filter((r) => r.id !== id) }));
 
   if (loading || !data) {
@@ -510,26 +348,14 @@ function App() {
             <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>原反 → 溶着・裁断 → 検品 → たたみ 工程トラッカー</div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <div className="fm-mono" style={{ fontSize: 11, color: C.textFaint, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{
-                width: 6, height: 6, borderRadius: 999,
-                background: saveStatus === 'saving' ? C.amber : saveStatus === 'error' ? C.red : C.green,
-              }} />
-              {saveStatus === 'saving' ? '保存中…' : saveStatus === 'error' ? '保存エラー(接続を確認)' : 'クラウドと同期済み'}
-            </span>
-            <button onClick={loadFromCloud} className="fm-btn" style={{ background: C.panelAlt2, border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: 11 }}>更新</button>
-          </div>
-          <AuthBar session={session} />
+        <div className="fm-mono" style={{ fontSize: 11, color: C.textFaint, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: 999,
+            background: saveStatus === 'saving' ? C.amber : saveStatus === 'error' ? C.red : C.green,
+          }} />
+          {saveStatus === 'saving' ? '保存中…' : saveStatus === 'error' ? '保存エラー' : '保存済み(共有データ)'}
         </div>
       </div>
-
-      {!isEditor && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: C.textDim }}>
-          <Lock size={13} /> 現在は閲覧のみのモードです。入力・編集を行うには右上からログインしてください。
-        </div>
-      )}
 
       {/* タブ */}
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 16, overflowX: 'auto' }}>
@@ -559,16 +385,16 @@ function App() {
         <DashboardTab data={data} lineById={lineById} orderById={orderById} lotById={lotById} orderStats={orderStats} salesOrderById={salesOrderById} salesOrderStats={salesOrderStats} />
       )}
       {tab === 'salesorders' && (
-        <SalesOrderTab data={data} addSalesOrder={addSalesOrder} removeSalesOrder={removeSalesOrder} salesOrderStats={salesOrderStats} isEditor={isEditor} />
+        <SalesOrderTab data={data} addSalesOrder={addSalesOrder} updateSalesOrder={updateSalesOrder} removeSalesOrder={removeSalesOrder} salesOrderStats={salesOrderStats} />
       )}
       {tab === 'plan' && (
-        <PlanTab data={data} orderStats={orderStats} addOrder={addOrder} removeOrder={removeOrder} lineById={lineById} lotById={lotById} addLine={addLine} removeLine={removeLine} salesOrderById={salesOrderById} isEditor={isEditor} />
+        <PlanTab data={data} orderStats={orderStats} addOrder={addOrder} updateOrder={updateOrder} removeOrder={removeOrder} lineById={lineById} lotById={lotById} addLine={addLine} removeLine={removeLine} salesOrderById={salesOrderById} />
       )}
       {tab === 'inventory' && (
-        <InventoryTab data={data} addLot={addLot} removeLot={removeLot} isEditor={isEditor} />
+        <InventoryTab data={data} addLot={addLot} updateLot={updateLot} removeLot={removeLot} />
       )}
       {tab === 'production' && (
-        <ProductionTab data={data} addRecord={addRecord} removeRecord={removeRecord} lineById={lineById} orderById={orderById} orderStats={orderStats} isEditor={isEditor} />
+        <ProductionTab data={data} addRecord={addRecord} updateRecord={updateRecord} removeRecord={removeRecord} lineById={lineById} orderById={orderById} orderStats={orderStats} />
       )}
       {tab === 'calendar' && (
         <CalendarTab data={data} lineById={lineById} orderById={orderById} orderStats={orderStats} />
@@ -745,9 +571,17 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
 /* ------------------------------------------------------------------ */
 /* 受注タブ                                                             */
 /* ------------------------------------------------------------------ */
-function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats, isEditor }) {
-  const [form, setForm] = useState({ orderNo: '', customerName: '', productName: '', orderedQty: '', orderDate: todayStr(), dueDate: '' });
+function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder, salesOrderStats }) {
+  const blankForm = { orderNo: '', customerName: '', productName: '', orderedQty: '', orderDate: todayStr(), dueDate: '' };
+  const [form, setForm] = useState(blankForm);
+  const [editingId, setEditingId] = useState(null);
   const [err, setErr] = useState('');
+
+  const startEdit = (so) => {
+    setEditingId(so.id);
+    setForm({ orderNo: so.orderNo, customerName: so.customerName, productName: so.productName, orderedQty: String(so.orderedQty), orderDate: so.orderDate, dueDate: so.dueDate });
+  };
+  const cancelEdit = () => { setEditingId(null); setForm(blankForm); setErr(''); };
 
   const submit = () => {
     if (!form.orderNo || !form.customerName || !form.productName || !form.orderedQty || !form.dueDate) {
@@ -755,8 +589,13 @@ function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats,
       return;
     }
     setErr('');
-    addSalesOrder({ ...form, orderedQty: Number(form.orderedQty) });
-    setForm({ orderNo: '', customerName: '', productName: '', orderedQty: '', orderDate: todayStr(), dueDate: '' });
+    if (editingId) {
+      updateSalesOrder(editingId, { ...form, orderedQty: Number(form.orderedQty) });
+      setEditingId(null);
+    } else {
+      addSalesOrder({ ...form, orderedQty: Number(form.orderedQty) });
+    }
+    setForm(blankForm);
   };
 
   const withStatus = data.salesOrders.map((so) => {
@@ -769,24 +608,23 @@ function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats,
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {isEditor ? (
-        <Panel style={{ padding: 16 }}>
-          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>受注を入力</div>
-          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>お客様からの注文をここに登録します。この後「生産計画」タブでラインへの割り当てを行います。</div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-            <Field label="受注番号"><input className="fm-input" value={form.orderNo} onChange={(e) => setForm({ ...form, orderNo: e.target.value })} placeholder="SO-0004" /></Field>
-            <Field label="得意先名"><input className="fm-input" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="例: D社" /></Field>
-            <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
-            <Field label="受注数量(枚)"><input type="number" className="fm-input" value={form.orderedQty} onChange={(e) => setForm({ ...form, orderedQty: e.target.value })} placeholder="5000" /></Field>
-            <Field label="受注日"><input type="date" className="fm-input" value={form.orderDate} onChange={(e) => setForm({ ...form, orderDate: e.target.value })} /></Field>
-            <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
-          </div>
-          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
-          <PrimaryButton onClick={submit}><Plus size={14} /> 受注を追加</PrimaryButton>
-        </Panel>
-      ) : (
-        <LockedNotice text="受注の入力にはログインが必要です。" />
-      )}
+      <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{editingId ? '受注を編集' : '受注を入力'}</div>
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>お客様からの注文をここに登録します。この後「生産計画」タブでラインへの割り当てを行います。</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <Field label="受注番号"><input className="fm-input" value={form.orderNo} onChange={(e) => setForm({ ...form, orderNo: e.target.value })} placeholder="SO-0004" /></Field>
+          <Field label="得意先名"><input className="fm-input" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="例: D社" /></Field>
+          <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
+          <Field label="受注数量(枚)"><input type="number" className="fm-input" value={form.orderedQty} onChange={(e) => setForm({ ...form, orderedQty: e.target.value })} placeholder="5000" /></Field>
+          <Field label="受注日"><input type="date" className="fm-input" value={form.orderDate} onChange={(e) => setForm({ ...form, orderDate: e.target.value })} /></Field>
+          <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
+        </div>
+        {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <PrimaryButton onClick={submit}>{editingId ? <CheckCircle2 size={14} /> : <Plus size={14} />} {editingId ? '更新を保存' : '受注を追加'}</PrimaryButton>
+          {editingId && <PrimaryButton onClick={cancelEdit} style={{ background: C.panelAlt2, color: C.text }}>キャンセル</PrimaryButton>}
+        </div>
+      </Panel>
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>受注一覧</div>
@@ -804,7 +642,7 @@ function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats,
               const ratio = pct(st.folded, so.orderedQty);
               const tone = status === '完了' ? 'green' : status === '計画中' ? 'teal' : 'dim';
               return (
-                <tr key={so.id} style={{ borderBottom: `1px solid ${C.border}`, background: status === '完了' ? C.greenDim + '33' : 'transparent' }}>
+                <tr key={so.id} style={{ borderBottom: `1px solid ${C.border}`, background: so.id === editingId ? C.tealDim + '55' : status === '完了' ? C.greenDim + '33' : 'transparent' }}>
                   <td className="fm-mono" style={{ padding: '8px' }}>{so.orderNo}</td>
                   <td style={{ padding: '8px' }}>{so.customerName}</td>
                   <td style={{ padding: '8px' }}>{so.productName}</td>
@@ -820,7 +658,10 @@ function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats,
                   <td style={{ padding: '8px' }}>
                     <Badge tone={tone}>{status === '完了' ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={11} />完了</span> : status}</Badge>
                   </td>
-                  <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeSalesOrder(so.id)} title="削除" danger />}</td>
+                  <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
+                    <IconBtn onClick={() => startEdit(so)} title="編集" icon={Pencil} />
+                    <IconBtn onClick={() => removeSalesOrder(so.id)} title="削除" danger />
+                  </td>
                 </tr>
               );
             })}
@@ -834,19 +675,40 @@ function SalesOrderTab({ data, addSalesOrder, removeSalesOrder, salesOrderStats,
 /* ------------------------------------------------------------------ */
 /* 生産計画タブ                                                         */
 /* ------------------------------------------------------------------ */
-function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, addLine, removeLine, salesOrderById, isEditor }) {
-  const [form, setForm] = useState({ planNo: '', salesOrderId: '', productName: '', lineId: data.lines[0]?.id || '', lotId: '', targetQty: '', dueDate: '' });
+function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineById, lotById, addLine, removeLine, salesOrderById }) {
+  const blankForm = { planNo: '', salesOrderId: '', productName: '', lineId: data.lines[0]?.id || '', lotId: '', targetQty: '', startDate: todayStr(), dueDate: '' };
+  const [form, setForm] = useState(blankForm);
+  const [editingId, setEditingId] = useState(null);
   const [newLine, setNewLine] = useState('');
   const [err, setErr] = useState('');
 
+  const startEdit = (o) => {
+    setEditingId(o.id);
+    setForm({
+      planNo: o.planNo, salesOrderId: o.salesOrderId || '', productName: o.productName,
+      lineId: o.lineId, lotId: o.lotId || '', targetQty: String(o.targetQty),
+      startDate: planStart(o), dueDate: planEnd(o),
+    });
+  };
+  const cancelEdit = () => { setEditingId(null); setForm(blankForm); setErr(''); };
+
   const submit = () => {
-    if (!form.planNo || !form.productName || !form.lineId || !form.targetQty || !form.dueDate) {
-      setErr('計画番号・製品名・ライン・目標数量・納期は必須です。');
+    if (!form.planNo || !form.productName || !form.lineId || !form.targetQty || !form.startDate || !form.dueDate) {
+      setErr('計画番号・製品名・ライン・目標数量・開始日・終了日(納期)は必須です。');
+      return;
+    }
+    if (form.startDate > form.dueDate) {
+      setErr('開始日は終了日(納期)より前の日付にしてください。');
       return;
     }
     setErr('');
-    addOrder({ ...form, targetQty: Number(form.targetQty) });
-    setForm({ planNo: '', salesOrderId: '', productName: '', lineId: data.lines[0]?.id || '', lotId: '', targetQty: '', dueDate: '' });
+    if (editingId) {
+      updateOrder(editingId, { ...form, targetQty: Number(form.targetQty) });
+      setEditingId(null);
+    } else {
+      addOrder({ ...form, targetQty: Number(form.targetQty) });
+    }
+    setForm(blankForm);
   };
 
   const onPickSalesOrder = (soId) => {
@@ -870,39 +732,40 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {isEditor ? (
-        <Panel style={{ padding: 16 }}>
-          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>生産計画を追加</div>
-          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注に対してライン・原反・目標数量を割り当てます。受注と紐づけない在庫生産もOK。</div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-            <Field label="紐づく受注(任意)">
-              <select className="fm-input" value={form.salesOrderId} onChange={(e) => onPickSalesOrder(e.target.value)}>
-                <option value="">受注と紐づけない</option>
-                {data.salesOrders.map((so) => <option key={so.id} value={so.id}>{so.orderNo} - {so.customerName} / {so.productName}</option>)}
-              </select>
-            </Field>
-            <Field label="計画番号"><input className="fm-input" value={form.planNo} onChange={(e) => setForm({ ...form, planNo: e.target.value })} placeholder="MO-0004" /></Field>
-            <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
-            <Field label="ライン">
-              <select className="fm-input" value={form.lineId} onChange={(e) => setForm({ ...form, lineId: e.target.value })}>
-                {data.lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
-            </Field>
-            <Field label="使用原反(任意)">
-              <select className="fm-input" value={form.lotId} onChange={(e) => setForm({ ...form, lotId: e.target.value })}>
-                <option value="">未指定</option>
-                {data.lots.map((l) => <option key={l.id} value={l.id}>{l.lotNo} ({l.materialName})</option>)}
-              </select>
-            </Field>
-            <Field label="目標数量(枚)"><input type="number" className="fm-input" value={form.targetQty} onChange={(e) => setForm({ ...form, targetQty: e.target.value })} placeholder="5000" /></Field>
-            <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
-          </div>
-          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
-          <PrimaryButton onClick={submit}><Plus size={14} /> 計画を追加</PrimaryButton>
-        </Panel>
-      ) : (
-        <LockedNotice text="生産計画の入力にはログインが必要です。" />
-      )}
+      <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{editingId ? '生産計画を編集' : '生産計画を追加'}</div>
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注に対してライン・原反・目標数量・生産期間を割り当てます。受注と紐づけない在庫生産もOK。</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <Field label="紐づく受注(任意)">
+            <select className="fm-input" value={form.salesOrderId} onChange={(e) => onPickSalesOrder(e.target.value)}>
+              <option value="">受注と紐づけない</option>
+              {data.salesOrders.map((so) => <option key={so.id} value={so.id}>{so.orderNo} - {so.customerName} / {so.productName}</option>)}
+            </select>
+          </Field>
+          <Field label="計画番号"><input className="fm-input" value={form.planNo} onChange={(e) => setForm({ ...form, planNo: e.target.value })} placeholder="MO-0004" /></Field>
+          <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
+          <Field label="ライン">
+            <select className="fm-input" value={form.lineId} onChange={(e) => setForm({ ...form, lineId: e.target.value })}>
+              {data.lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </Field>
+          <Field label="使用原反(任意)">
+            <select className="fm-input" value={form.lotId} onChange={(e) => setForm({ ...form, lotId: e.target.value })}>
+              <option value="">未指定</option>
+              {data.lots.map((l) => <option key={l.id} value={l.id}>{l.lotNo} ({l.materialName})</option>)}
+            </select>
+          </Field>
+          <Field label="目標数量(枚)"><input type="number" className="fm-input" value={form.targetQty} onChange={(e) => setForm({ ...form, targetQty: e.target.value })} placeholder="5000" /></Field>
+          <Field label="開始日"><input type="date" className="fm-input" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></Field>
+          <Field label="終了日(納期)"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
+        </div>
+        {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <PrimaryButton onClick={submit}>{editingId ? <CheckCircle2 size={14} /> : <Plus size={14} />} {editingId ? '更新を保存' : '計画を追加'}</PrimaryButton>
+          {editingId && <PrimaryButton onClick={cancelEdit} style={{ background: C.panelAlt2, color: C.text }}>キャンセル</PrimaryButton>}
+        </div>
+      </Panel>
+
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -912,7 +775,7 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 780 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['計画番号', '受注/得意先', '製品名', 'ライン', '原反', '進捗(たたみ済/目標)', '納期', '状態', ''].map((h) => (
+              {['計画番号', '受注/得意先', '製品名', 'ライン', '原反', '進捗(たたみ済/目標)', '生産期間', '状態', ''].map((h) => (
                 <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>
               ))}
             </tr>
@@ -928,7 +791,7 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
               const so = salesOrderById(o.salesOrderId);
               const done = status === '完了';
               return (
-                <tr key={o.id} style={{ borderBottom: `1px solid ${C.border}`, background: done ? 'rgba(79,179,116,0.08)' : 'transparent' }}>
+                <tr key={o.id} style={{ borderBottom: `1px solid ${C.border}`, background: o.id === editingId ? C.tealDim + '55' : done ? 'rgba(79,179,116,0.08)' : 'transparent' }}>
                   <td className="fm-mono" style={{ padding: '8px' }}>{o.planNo}</td>
                   <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{so ? `${so.orderNo} / ${so.customerName}` : '—'}</td>
                   <td style={{ padding: '8px' }}>{o.productName}</td>
@@ -940,11 +803,13 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
                       <span className="fm-mono" style={{ fontSize: 11, color: C.textDim, whiteSpace: 'nowrap' }}>{fmt(st.folded)}/{fmt(o.targetQty)}</span>
                     </div>
                   </td>
-                  <td className="fm-mono" style={{ padding: '8px' }}>{o.dueDate}</td>
+                  <td className="fm-mono" style={{ padding: '8px', fontSize: 12, whiteSpace: 'nowrap' }}>{planStart(o)} 〜 {planEnd(o)}</td>
                   <td style={{ padding: '8px' }}>
                     <Badge tone={tone}>{done ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={11} />完了</span> : status}</Badge>
                   </td>
-                  <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeOrder(o.id)} title="削除" danger />}</td>
+                  <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
+                    <IconBtn onClick={() => startEdit(o)} title="編集" icon={Pencil} />
+                    <IconBtn onClick={() => removeOrder(o.id)} title="削除" danger /></td>
                 </tr>
               );
             })}
@@ -952,23 +817,21 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
         </table>
       </Panel>
 
-      {isEditor && (
-        <Panel style={{ padding: 16 }}>
-          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>ライン管理</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            {data.lines.map((l) => (
-              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 999, padding: '4px 6px 4px 12px', fontSize: 13 }}>
-                {l.name}
-                <IconBtn onClick={() => removeLine(l.id)} title="ライン削除" danger />
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 8, maxWidth: 340 }}>
-            <input className="fm-input" placeholder="新しいライン名 (例: ライン4)" value={newLine} onChange={(e) => setNewLine(e.target.value)} />
-            <PrimaryButton onClick={() => { if (newLine.trim()) { addLine(newLine.trim()); setNewLine(''); } }}><Plus size={14} /> 追加</PrimaryButton>
-          </div>
-        </Panel>
-      )}
+      <Panel style={{ padding: 16 }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>ライン管理</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {data.lines.map((l) => (
+            <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 999, padding: '4px 6px 4px 12px', fontSize: 13 }}>
+              {l.name}
+              <IconBtn onClick={() => removeLine(l.id)} title="ライン削除" danger />
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, maxWidth: 340 }}>
+          <input className="fm-input" placeholder="新しいライン名 (例: ライン4)" value={newLine} onChange={(e) => setNewLine(e.target.value)} />
+          <PrimaryButton onClick={() => { if (newLine.trim()) { addLine(newLine.trim()); setNewLine(''); } }}><Plus size={14} /> 追加</PrimaryButton>
+        </div>
+      </Panel>
     </div>
   );
 }
@@ -976,12 +839,25 @@ function PlanTab({ data, orderStats, addOrder, removeOrder, lineById, lotById, a
 /* ------------------------------------------------------------------ */
 /* 原反在庫タブ                                                         */
 /* ------------------------------------------------------------------ */
-function InventoryTab({ data, addLot, removeLot, isEditor }) {
-  const [form, setForm] = useState({
+function InventoryTab({ data, addLot, updateLot, removeLot }) {
+  const blankForm = {
     lotNo: '', materialName: '', widthMm: '', initialLength: '', remainingLength: '', unit: 'm', receivedDate: todayStr(),
     currency: 'JPY', unitPriceForeign: '', exchangeRate: '1',
-  });
+  };
+  const [form, setForm] = useState(blankForm);
+  const [editingId, setEditingId] = useState(null);
   const [err, setErr] = useState('');
+
+  const startEdit = (l) => {
+    setEditingId(l.id);
+    setForm({
+      lotNo: l.lotNo, materialName: l.materialName, widthMm: String(l.widthMm || ''),
+      initialLength: String(l.initialLength), remainingLength: String(l.remainingLength),
+      unit: l.unit || 'm', receivedDate: l.receivedDate,
+      currency: l.currency || 'JPY', unitPriceForeign: String(l.unitPriceForeign || ''), exchangeRate: String(l.exchangeRate || '1'),
+    });
+  };
+  const cancelEdit = () => { setEditingId(null); setForm(blankForm); setErr(''); };
 
   const submit = () => {
     if (!form.lotNo || !form.materialName || !form.initialLength) {
@@ -989,15 +865,21 @@ function InventoryTab({ data, addLot, removeLot, isEditor }) {
       return;
     }
     setErr('');
-    addLot({
+    const payload = {
       ...form,
       widthMm: Number(form.widthMm) || 0,
       initialLength: Number(form.initialLength),
       remainingLength: form.remainingLength === '' ? Number(form.initialLength) : Number(form.remainingLength),
       unitPriceForeign: Number(form.unitPriceForeign) || 0,
       exchangeRate: form.currency === 'JPY' ? 1 : Number(form.exchangeRate) || 1,
-    });
-    setForm({ lotNo: '', materialName: '', widthMm: '', initialLength: '', remainingLength: '', unit: 'm', receivedDate: todayStr(), currency: 'JPY', unitPriceForeign: '', exchangeRate: '1' });
+    };
+    if (editingId) {
+      updateLot(editingId, payload);
+      setEditingId(null);
+    } else {
+      addLot(payload);
+    }
+    setForm(blankForm);
   };
 
   const totalInventoryValue = data.lots.reduce((sum, l) => sum + lotTotalCostJPY(l) * (num(l.initialLength) > 0 ? num(l.remainingLength) / num(l.initialLength) : 0), 0);
@@ -1009,46 +891,45 @@ function InventoryTab({ data, addLot, removeLot, isEditor }) {
         <StatCard icon={Package} label="ロット数" value={data.lots.length} unit="件" tone="teal" />
       </div>
 
-      {isEditor ? (
-        <Panel style={{ padding: 16 }}>
-          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>原反ロットを追加</div>
-          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>仕入れ時の通貨・単価・為替レートを記録すると、円換算コストが自動計算されます。</div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-            <Field label="ロット番号"><input className="fm-input" value={form.lotNo} onChange={(e) => setForm({ ...form, lotNo: e.target.value })} placeholder="PP-20260727" /></Field>
-            <Field label="原反名"><input className="fm-input" value={form.materialName} onChange={(e) => setForm({ ...form, materialName: e.target.value })} placeholder="PP不織布 20g/m²" /></Field>
-            <Field label="幅(mm)"><input type="number" className="fm-input" value={form.widthMm} onChange={(e) => setForm({ ...form, widthMm: e.target.value })} placeholder="1600" /></Field>
-            <Field label="初期数量"><input type="number" className="fm-input" value={form.initialLength} onChange={(e) => setForm({ ...form, initialLength: e.target.value })} placeholder="3000" /></Field>
-            <Field label="単位">
-              <select className="fm-input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
-                <option value="m">m</option>
-                <option value="kg">kg</option>
-                <option value="roll">本</option>
-              </select>
-            </Field>
-            <Field label="入荷日"><input type="date" className="fm-input" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} /></Field>
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10, paddingTop: 10, borderTop: `1px dashed ${C.border}` }}>
-            <Field label="仕入通貨">
-              <select className="fm-input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value, exchangeRate: e.target.value === 'JPY' ? '1' : form.exchangeRate })}>
-                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
-            <Field label={`単価(${form.currency}/${form.unit || 'm'})`}><input type="number" step="0.01" className="fm-input" value={form.unitPriceForeign} onChange={(e) => setForm({ ...form, unitPriceForeign: e.target.value })} placeholder="0.42" /></Field>
-            <Field label="為替レート(1外貨=何円)">
-              <input type="number" step="0.01" className="fm-input" value={form.currency === 'JPY' ? 1 : form.exchangeRate} disabled={form.currency === 'JPY'} onChange={(e) => setForm({ ...form, exchangeRate: e.target.value })} placeholder="150" />
-            </Field>
-            <Field label="円換算単価(自動計算)">
-              <div className="fm-mono" style={{ padding: '7px 10px', color: C.teal, fontSize: 13 }}>
-                {(Number(form.unitPriceForeign || 0) * (form.currency === 'JPY' ? 1 : Number(form.exchangeRate || 1))).toFixed(2)} 円
-              </div>
-            </Field>
-          </div>
-          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
-          <PrimaryButton onClick={submit}><Plus size={14} /> ロットを追加</PrimaryButton>
-        </Panel>
-      ) : (
-        <LockedNotice text="原反ロットの入力にはログインが必要です。" />
-      )}
+      <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{editingId ? '原反ロットを編集' : '原反ロットを追加'}</div>
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>仕入れ時の通貨・単価・為替レートを記録すると、円換算コストが自動計算されます。</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <Field label="ロット番号"><input className="fm-input" value={form.lotNo} onChange={(e) => setForm({ ...form, lotNo: e.target.value })} placeholder="PP-20260727" /></Field>
+          <Field label="原反名"><input className="fm-input" value={form.materialName} onChange={(e) => setForm({ ...form, materialName: e.target.value })} placeholder="PP不織布 20g/m²" /></Field>
+          <Field label="幅(mm)"><input type="number" className="fm-input" value={form.widthMm} onChange={(e) => setForm({ ...form, widthMm: e.target.value })} placeholder="1600" /></Field>
+          <Field label="初期数量"><input type="number" className="fm-input" value={form.initialLength} onChange={(e) => setForm({ ...form, initialLength: e.target.value })} placeholder="3000" /></Field>
+          <Field label="単位">
+            <select className="fm-input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
+              <option value="m">m</option>
+              <option value="kg">kg</option>
+              <option value="roll">本</option>
+            </select>
+          </Field>
+          <Field label="入荷日"><input type="date" className="fm-input" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} /></Field>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10, paddingTop: 10, borderTop: `1px dashed ${C.border}` }}>
+          <Field label="仕入通貨">
+            <select className="fm-input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value, exchangeRate: e.target.value === 'JPY' ? '1' : form.exchangeRate })}>
+              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label={`単価(${form.currency}/${form.unit || 'm'})`}><input type="number" step="0.01" className="fm-input" value={form.unitPriceForeign} onChange={(e) => setForm({ ...form, unitPriceForeign: e.target.value })} placeholder="0.42" /></Field>
+          <Field label="為替レート(1外貨=何円)">
+            <input type="number" step="0.01" className="fm-input" value={form.currency === 'JPY' ? 1 : form.exchangeRate} disabled={form.currency === 'JPY'} onChange={(e) => setForm({ ...form, exchangeRate: e.target.value })} placeholder="150" />
+          </Field>
+          <Field label="円換算単価(自動計算)">
+            <div className="fm-mono" style={{ padding: '7px 10px', color: C.teal, fontSize: 13 }}>
+              {(Number(form.unitPriceForeign || 0) * (form.currency === 'JPY' ? 1 : Number(form.exchangeRate || 1))).toFixed(2)} 円
+            </div>
+          </Field>
+        </div>
+        {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <PrimaryButton onClick={submit}>{editingId ? <CheckCircle2 size={14} /> : <Plus size={14} />} {editingId ? '更新を保存' : 'ロットを追加'}</PrimaryButton>
+          {editingId && <PrimaryButton onClick={cancelEdit} style={{ background: C.panelAlt2, color: C.text }}>キャンセル</PrimaryButton>}
+        </div>
+      </Panel>
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>原反在庫一覧</div>
@@ -1067,7 +948,7 @@ function InventoryTab({ data, addLot, removeLot, isEditor }) {
               const low = ratio < 20;
               const unitCost = lotUnitCostJPY(l);
               return (
-                <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}`, background: l.id === editingId ? C.tealDim + '55' : 'transparent' }}>
                   <td className="fm-mono" style={{ padding: '8px' }}>{l.lotNo}</td>
                   <td style={{ padding: '8px' }}>{l.materialName}</td>
                   <td className="fm-mono" style={{ padding: '8px' }}>{l.widthMm || '—'}</td>
@@ -1082,7 +963,10 @@ function InventoryTab({ data, addLot, removeLot, isEditor }) {
                   </td>
                   <td className="fm-mono" style={{ padding: '8px', color: C.amber }}>{unitCost.toFixed(2)}円/{l.unit}</td>
                   <td className="fm-mono" style={{ padding: '8px' }}>{l.receivedDate}</td>
-                  <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeLot(l.id)} title="削除" danger />}</td>
+                  <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
+                    <IconBtn onClick={() => startEdit(l)} title="編集" icon={Pencil} />
+                    <IconBtn onClick={() => removeLot(l.id)} title="削除" danger />
+                  </td>
                 </tr>
               );
             })}
@@ -1096,16 +980,29 @@ function InventoryTab({ data, addLot, removeLot, isEditor }) {
 /* ------------------------------------------------------------------ */
 /* 生産実績・WIPタブ                                                    */
 /* ------------------------------------------------------------------ */
-function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, orderStats, isEditor }) {
-  const [form, setForm] = useState({
+function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, orderById, orderStats }) {
+  const blankForm = {
     date: todayStr(), orderId: data.orders[0]?.id || '', worker: '', machineUpQty: '', inspectedQty: '', foldedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '',
-  });
+  };
+  const [form, setForm] = useState(blankForm);
+  const [editingId, setEditingId] = useState(null);
   const [err, setErr] = useState('');
 
   const workerOptions = useMemo(
     () => [...new Set(data.records.map((r) => r.worker).filter(Boolean))],
     [data.records],
   );
+
+  const startEdit = (r) => {
+    setEditingId(r.id);
+    setForm({
+      date: r.date, orderId: r.orderId, worker: r.worker || '',
+      machineUpQty: String(r.machineUpQty ?? ''), inspectedQty: String(r.inspectedQty ?? ''),
+      foldedQty: String(r.foldedQty ?? ''), defectQty: String(r.defectQty ?? ''),
+      defectCause: r.defectCause || '', defectNote: r.defectNote || '', materialUsedLength: String(r.materialUsedLength ?? ''),
+    });
+  };
+  const cancelEdit = () => { setEditingId(null); setForm(blankForm); setErr(''); };
 
   const submit = () => {
     if (!form.orderId || !form.date || !form.worker || form.machineUpQty === '') {
@@ -1114,7 +1011,7 @@ function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, ord
     }
     setErr('');
     const ord = orderById(form.orderId);
-    addRecord({
+    const payload = {
       date: form.date,
       orderId: form.orderId,
       lineId: ord?.lineId,
@@ -1126,8 +1023,15 @@ function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, ord
       defectCause: Number(form.defectQty) > 0 ? form.defectCause : '',
       defectNote: form.defectNote,
       materialUsedLength: Number(form.materialUsedLength) || 0,
-    });
-    setForm({ ...form, worker: '', machineUpQty: '', inspectedQty: '', foldedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '' });
+    };
+    if (editingId) {
+      updateRecord(editingId, payload);
+      setEditingId(null);
+      setForm(blankForm);
+    } else {
+      addRecord(payload);
+      setForm({ ...form, worker: '', machineUpQty: '', inspectedQty: '', foldedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '' });
+    }
   };
 
   const workerOrderStats = useMemo(() => {
@@ -1150,40 +1054,39 @@ function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, ord
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {isEditor ? (
-        <Panel style={{ padding: 16 }}>
-          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>実績を入力</div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-            <Field label="日付"><input type="date" className="fm-input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
-            <Field label="生産計画">
-              <select className="fm-input" value={form.orderId} onChange={(e) => setForm({ ...form, orderId: e.target.value })}>
-                {data.orders.map((o) => <option key={o.id} value={o.id}>{o.planNo} - {o.productName} ({lineById(o.lineId)?.name})</option>)}
-              </select>
-            </Field>
-            <Field label="担当者">
-              <input list="worker-options" className="fm-input" value={form.worker} onChange={(e) => setForm({ ...form, worker: e.target.value })} placeholder="例: 田中" />
-              <datalist id="worker-options">
-                {workerOptions.map((w) => <option key={w} value={w} />)}
-              </datalist>
-            </Field>
-            <Field label="機械上がり数(枚)"><input type="number" className="fm-input" value={form.machineUpQty} onChange={(e) => setForm({ ...form, machineUpQty: e.target.value })} placeholder="500" /></Field>
-            <Field label="検品済み数(枚)"><input type="number" className="fm-input" value={form.inspectedQty} onChange={(e) => setForm({ ...form, inspectedQty: e.target.value })} placeholder="480" /></Field>
-            <Field label="たたみ済み数(枚)"><input type="number" className="fm-input" value={form.foldedQty} onChange={(e) => setForm({ ...form, foldedQty: e.target.value })} placeholder="450" /></Field>
-            <Field label="不良数(枚)"><input type="number" className="fm-input" value={form.defectQty} onChange={(e) => setForm({ ...form, defectQty: e.target.value })} placeholder="10" /></Field>
-            <Field label="不良原因">
-              <select className="fm-input" value={form.defectCause} onChange={(e) => setForm({ ...form, defectCause: e.target.value })}>
-                <option value="">選択してください</option>
-                {DEFECT_CAUSES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
-            <Field label="原反使用量(任意)"><input type="number" className="fm-input" value={form.materialUsedLength} onChange={(e) => setForm({ ...form, materialUsedLength: e.target.value })} placeholder="30" /></Field>
-          </div>
-          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
-          <PrimaryButton onClick={submit}><Plus size={14} /> 実績を記録</PrimaryButton>
-        </Panel>
-      ) : (
-        <LockedNotice text="実績の入力にはログインが必要です。" />
-      )}
+      <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{editingId ? '実績を編集' : '実績を入力'}</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <Field label="日付"><input type="date" className="fm-input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
+          <Field label="生産計画">
+            <select className="fm-input" value={form.orderId} onChange={(e) => setForm({ ...form, orderId: e.target.value })}>
+              {data.orders.map((o) => <option key={o.id} value={o.id}>{o.planNo} - {o.productName} ({lineById(o.lineId)?.name})</option>)}
+            </select>
+          </Field>
+          <Field label="担当者">
+            <input list="worker-options" className="fm-input" value={form.worker} onChange={(e) => setForm({ ...form, worker: e.target.value })} placeholder="例: 田中" />
+            <datalist id="worker-options">
+              {workerOptions.map((w) => <option key={w} value={w} />)}
+            </datalist>
+          </Field>
+          <Field label="機械上がり数(枚)"><input type="number" className="fm-input" value={form.machineUpQty} onChange={(e) => setForm({ ...form, machineUpQty: e.target.value })} placeholder="500" /></Field>
+          <Field label="検品済み数(枚)"><input type="number" className="fm-input" value={form.inspectedQty} onChange={(e) => setForm({ ...form, inspectedQty: e.target.value })} placeholder="480" /></Field>
+          <Field label="たたみ済み数(枚)"><input type="number" className="fm-input" value={form.foldedQty} onChange={(e) => setForm({ ...form, foldedQty: e.target.value })} placeholder="450" /></Field>
+          <Field label="不良数(枚)"><input type="number" className="fm-input" value={form.defectQty} onChange={(e) => setForm({ ...form, defectQty: e.target.value })} placeholder="10" /></Field>
+          <Field label="不良原因">
+            <select className="fm-input" value={form.defectCause} onChange={(e) => setForm({ ...form, defectCause: e.target.value })}>
+              <option value="">選択してください</option>
+              {DEFECT_CAUSES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="原反使用量(任意)"><input type="number" className="fm-input" value={form.materialUsedLength} onChange={(e) => setForm({ ...form, materialUsedLength: e.target.value })} placeholder="30" /></Field>
+        </div>
+        {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <PrimaryButton onClick={submit}>{editingId ? <CheckCircle2 size={14} /> : <Plus size={14} />} {editingId ? '更新を保存' : '実績を記録'}</PrimaryButton>
+          {editingId && <PrimaryButton onClick={cancelEdit} style={{ background: C.panelAlt2, color: C.text }}>キャンセル</PrimaryButton>}
+        </div>
+      </Panel>
 
       {/* 計画別WIPサマリ */}
       <Panel style={{ padding: 16 }}>
@@ -1255,7 +1158,7 @@ function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, ord
               <tr><td colSpan={9} style={{ padding: 14, color: C.textFaint }}>実績記録がありません。</td></tr>
             )}
             {sortedRecords.map((r) => (
-              <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+              <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}`, background: r.id === editingId ? C.tealDim + '55' : 'transparent' }}>
                 <td className="fm-mono" style={{ padding: '8px' }}>{r.date}</td>
                 <td style={{ padding: '8px' }}>{lineById(r.lineId)?.name || '—'}</td>
                 <td style={{ padding: '8px' }}>{orderById(r.orderId)?.planNo || '—'}</td>
@@ -1264,7 +1167,10 @@ function ProductionTab({ data, addRecord, removeRecord, lineById, orderById, ord
                 <td className="fm-mono" style={{ padding: '8px' }}>{fmt(r.inspectedQty)}</td>
                 <td className="fm-mono" style={{ padding: '8px' }}>{fmt(r.foldedQty)}</td>
                 <td className="fm-mono" style={{ padding: '8px', color: r.defectQty > 0 ? C.red : C.textDim }}>{fmt(r.defectQty)}</td>
-                <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeRecord(r.id)} title="削除" danger />}</td>
+                <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
+                  <IconBtn onClick={() => startEdit(r)} title="編集" icon={Pencil} />
+                  <IconBtn onClick={() => removeRecord(r.id)} title="削除" danger />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1311,6 +1217,38 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
     return selectedRecords.some((r) => r.orderId === o.id);
   });
 
+  // その日が納期の計画(達成状況の参考表示用)
+  const duePlansOnSelected = data.orders.filter((o) => o.dueDate === selected);
+
+  // その日が生産期間内(開始日〜終了日)の計画(1日あたり計画 vs 実績の比較用)
+  const activePlansOnSelected = data.orders.filter((o) => planActiveOn(o, selected));
+
+  // 表示中の月に生産期間が重なる計画(ガントチャート表示用)
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthStartStr = toDateStr(year, month, 1);
+  const monthEndStr = toDateStr(year, month, daysInMonth);
+  const ganttPlans = useMemo(() => data.orders
+    .filter((o) => planEnd(o) >= monthStartStr && planStart(o) <= monthEndStr)
+    .map((o) => {
+      const s = planStart(o) < monthStartStr ? 1 : parseDate(planStart(o)).getDate();
+      const e = planEnd(o) > monthEndStr ? daysInMonth : parseDate(planEnd(o)).getDate();
+      const st = orderStats(o.id);
+      const done = o.targetQty > 0 && st.folded >= o.targetQty;
+      const recDays = [...new Set(
+        data.records
+          .filter((r) => r.orderId === o.id && r.date >= monthStartStr && r.date <= monthEndStr)
+          .map((r) => parseDate(r.date).getDate())
+      )];
+      return { o, s, e, done, recDays, st };
+    }), [data.orders, data.records, monthStartStr, monthEndStr, daysInMonth, orderStats]);
+
+  // 表示中の月に納期がある計画の合計 vs その月の実績合計(ざっくりしたペース比較)
+  const monthDateSet = useMemo(() => new Set(cells.filter((d) => d !== null).map((d) => toDateStr(year, month, d))), [cells, year, month]);
+  const monthDuePlans = data.orders.filter((o) => monthDateSet.has(o.dueDate));
+  const monthPlannedQty = monthDuePlans.reduce((s, o) => s + num(o.targetQty), 0);
+  const monthActualQty = data.records.filter((r) => monthDateSet.has(r.date)).reduce((s, r) => s + num(r.foldedQty), 0);
+  const monthAchievement = monthPlannedQty > 0 ? (monthActualQty / monthPlannedQty) * 100 : null;
+
   const lineBreak = data.lines.map((line) => {
     const recs = selectedRecords.filter((r) => r.lineId === line.id);
     const t = recs.reduce((acc, r) => ({
@@ -1333,6 +1271,12 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <StatCard icon={ClipboardList} label="今月納期の計画数量" value={fmt(monthPlannedQty)} unit="枚" tone="amber" />
+        <StatCard icon={CheckCircle2} label="今月の実績(たたみ済み)" value={fmt(monthActualQty)} unit="枚" tone="green" />
+        <StatCard icon={Gauge} label="達成率" value={monthAchievement === null ? '—' : monthAchievement.toFixed(0)} unit={monthAchievement === null ? '' : '%'} tone={monthAchievement !== null && monthAchievement < 80 ? 'red' : 'teal'} />
+      </div>
+
       <Panel style={{ padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
           <div className="fm-display" style={{ fontSize: 18, fontWeight: 700 }}>{year}年 {month + 1}月</div>
@@ -1341,6 +1285,10 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
             <PrimaryButton onClick={goToday} style={{ background: C.panelAlt2, color: C.text }}>今日</PrimaryButton>
             <PrimaryButton onClick={nextMonth} style={{ background: C.panelAlt2, color: C.text }}>次月 ›</PrimaryButton>
           </div>
+        </div>
+        <div style={{ display: 'flex', gap: 14, marginBottom: 10, fontSize: 11, color: C.textFaint, alignItems: 'center' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: C.green }} /> 実績あり</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>🏁 この日が納期の計画あり</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
           {weekdays.map((w) => <div key={w} style={{ textAlign: 'center', fontSize: 11, color: C.textFaint, padding: '4px 0' }}>{w}</div>)}
@@ -1354,6 +1302,7 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
             const isToday = dateStr === todayStr();
             const dRate = t.machineUp > 0 ? (t.defect / t.machineUp) * 100 : 0;
             const hasActivity = t.count > 0;
+            const duePlansCount = data.orders.filter((o) => o.dueDate === dateStr).length;
             return (
               <button
                 key={i}
@@ -1361,7 +1310,7 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
                 className="fm-btn"
                 style={{
                   textAlign: 'left',
-                  border: isSelected ? `1.5px solid ${C.teal}` : `1px solid ${C.border}`,
+                  border: isSelected ? `1.5px solid ${C.teal}` : duePlansCount > 0 ? `1px solid ${C.amberDim}` : `1px solid ${C.border}`,
                   background: isSelected ? C.tealDim : C.panelAlt,
                   borderRadius: 8, padding: '6px 8px', minHeight: 56,
                   cursor: 'pointer', color: C.text,
@@ -1369,7 +1318,10 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="fm-mono" style={{ fontSize: 12, color: isToday ? C.teal : C.textDim, fontWeight: isToday ? 700 : 400 }}>{d}</span>
-                  {hasActivity && <span style={{ width: 6, height: 6, borderRadius: 999, background: dRate > 5 ? C.red : C.green }} />}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {duePlansCount > 0 && <span style={{ fontSize: 10 }} title="この日が納期の計画あり">🏁</span>}
+                    {hasActivity && <span style={{ width: 6, height: 6, borderRadius: 999, background: dRate > 5 ? C.red : C.green }} />}
+                  </span>
                 </div>
                 {hasActivity && (
                   <div className="fm-mono" style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>
@@ -1380,6 +1332,54 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
             );
           })}
         </div>
+      </Panel>
+
+      <Panel style={{ padding: 16, overflowX: 'auto' }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>生産計画スケジュール({year}年{month + 1}月)</div>
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>バーが計画の生産期間(開始日〜終了日)、オレンジの縦線がその日に実績が入力されたことを示します。</div>
+        {ganttPlans.length === 0 ? (
+          <div style={{ fontSize: 13, color: C.textFaint }}>この月に該当する生産計画はありません。</div>
+        ) : (
+          <div style={{ minWidth: 640 }}>
+            <div style={{ display: 'flex', marginBottom: 6 }}>
+              <div style={{ width: 170, flexShrink: 0 }} />
+              <div style={{ position: 'relative', flex: 1, height: 14 }}>
+                {Array.from({ length: daysInMonth }, (_, i) => i + 1)
+                  .filter((d) => d === 1 || d % (daysInMonth > 20 ? 5 : 2) === 0)
+                  .map((d) => (
+                    <span key={d} className="fm-mono" style={{ position: 'absolute', left: `${((d - 1) / daysInMonth) * 100}%`, fontSize: 9, color: C.textFaint }}>{d}</span>
+                  ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {ganttPlans.map(({ o, s, e, done, recDays, st }) => (
+                <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 170, flexShrink: 0, fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${o.planNo} ${o.productName}`}>
+                    <span style={{ fontWeight: 600 }}>{o.planNo}</span> <span style={{ color: C.textFaint }}>{o.productName}</span>
+                  </div>
+                  <div style={{ position: 'relative', flex: 1, height: 18, background: C.bg, borderRadius: 4, border: `1px solid ${C.border}` }}>
+                    <div
+                      style={{
+                        position: 'absolute', top: 2, bottom: 2,
+                        left: `${((s - 1) / daysInMonth) * 100}%`,
+                        width: `${((e - s + 1) / daysInMonth) * 100}%`,
+                        borderRadius: 3, background: done ? C.green : C.teal, opacity: 0.85,
+                      }}
+                      title={`${planStart(o)} 〜 ${planEnd(o)} / 実績 ${fmt(st.folded)}枚`}
+                    />
+                    {recDays.map((d) => (
+                      <div
+                        key={d}
+                        style={{ position: 'absolute', top: -2, bottom: -2, left: `${((d - 0.5) / daysInMonth) * 100}%`, width: 2, background: C.amber }}
+                        title={`${toDateStr(year, month, d)} に実績あり`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Panel>
 
       <Panel style={{ padding: 16 }}>
@@ -1407,6 +1407,62 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
                       <span style={{ color: C.green, marginLeft: 'auto' }}>{fmt(o.targetQty)}枚 完成</span>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {duePlansOnSelected.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div className="fm-display" style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.textDim, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  🏁 この日が納期の計画(累計 計画 vs 実績)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {duePlansOnSelected.map((o) => {
+                    const st = orderStats(o.id);
+                    const ratio = pct(st.folded, o.targetQty);
+                    const done = o.targetQty > 0 && st.folded >= o.targetQty;
+                    const late = !done && selected < todayStr();
+                    const tone = done ? 'green' : late ? 'red' : 'amber';
+                    return (
+                      <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: C.panelAlt, borderRadius: 6, padding: '8px 10px' }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, minWidth: 140 }}>{o.planNo} <span style={{ color: C.textDim, fontWeight: 400 }}>{o.productName}</span></span>
+                        <div style={{ flex: 1, minWidth: 100, maxWidth: 200 }}><ProgressBar ratio={ratio} color={done ? C.green : late ? C.red : C.amber} /></div>
+                        <span className="fm-mono" style={{ fontSize: 11, color: C.textDim }}>実績 {fmt(st.folded)} / 計画 {fmt(o.targetQty)}枚</span>
+                        <Badge tone={tone}>{done ? '達成' : late ? '未達(納期超過)' : '進行中'}</Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {activePlansOnSelected.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div className="fm-display" style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.textDim, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  📅 この日の生産計画(1日あたり計画 vs この日の実績)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {activePlansOnSelected.map((o) => {
+                    const dailyTarget = planDailyTarget(o);
+                    const dayRecs = data.records.filter((r) => r.orderId === o.id && r.date === selected);
+                    const dayActual = dayRecs.reduce((s, r) => s + num(r.machineUpQty), 0);
+                    const dayFolded = dayRecs.reduce((s, r) => s + num(r.foldedQty), 0);
+                    const ratio = pct(dayActual, dailyTarget);
+                    const behind = dailyTarget > 0 && dayActual < dailyTarget * 0.8;
+                    const tone = dailyTarget === 0 ? 'dim' : behind ? 'red' : 'green';
+                    return (
+                      <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: C.panelAlt, borderRadius: 6, padding: '8px 10px' }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, minWidth: 140 }}>{o.planNo} <span style={{ color: C.textDim, fontWeight: 400 }}>{o.productName}</span></span>
+                        <span style={{ fontSize: 10, color: C.textFaint, whiteSpace: 'nowrap' }}>{planStart(o)}〜{planEnd(o)}</span>
+                        <div style={{ flex: 1, minWidth: 100, maxWidth: 200 }}><ProgressBar ratio={ratio} color={behind ? C.red : C.teal} /></div>
+                        <span className="fm-mono" style={{ fontSize: 11, color: C.textDim, whiteSpace: 'nowrap' }}>
+                          実績(機械上がり) {fmt(dayActual)} / 1日計画 {fmt(Math.round(dailyTarget))}枚
+                        </span>
+                        <span className="fm-mono" style={{ fontSize: 10, color: C.textFaint }}>たたみ済 {fmt(dayFolded)}枚</span>
+                        <Badge tone={tone}>{dailyTarget === 0 ? '—' : behind ? 'ペース遅れ' : '順調'}</Badge>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1525,18 +1581,3 @@ function QualityTab({ data, lineById, orderById }) {
     </div>
   );
 }
-
-
-/* ==================================================================== */
-/* 起動                                                                   */
-/* ==================================================================== */
-function Root() {
-  if (!CONFIGURED) return <SetupGuide />;
-  return <App />;
-}
-
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<Root />);
-</script>
-</body>
-</html>

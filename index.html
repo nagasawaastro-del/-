@@ -83,6 +83,7 @@ const FileText = makeIcon('📄');
 const Coins = makeIcon('💰');
 const Lock = makeIcon('🔒');
 const Pencil = makeIcon('✏️');
+const Box = makeIcon('📐');
 
 /* ==================================================================== */
 /* セットアップ未完了時の案内画面                                          */
@@ -186,6 +187,7 @@ const normalizeData = (loaded) => {
   if (!loaded || typeof loaded !== 'object') return DEFAULT_DATA;
   return {
     lines: Array.isArray(loaded.lines) ? loaded.lines : DEFAULT_DATA.lines,
+    products: Array.isArray(loaded.products) ? loaded.products : [],
     salesOrders: Array.isArray(loaded.salesOrders) ? loaded.salesOrders : [],
     lots: Array.isArray(loaded.lots) ? loaded.lots : [],
     orders: Array.isArray(loaded.orders) ? loaded.orders : [],
@@ -201,10 +203,15 @@ const DEFAULT_DATA = {
     { id: 'L2', name: 'ライン2' },
     { id: 'L3', name: 'ライン3' },
   ],
+  products: [
+    { id: 'P1', productCode: 'PD-001', productName: 'マスク用インナーシート', spec: '175mm×95mm', defaultCustomer: 'A社', materialType: 'PP不織布 20g/m²', speedPerHour: 800, minLotQty: 1000, storageLocation: '倉庫A-1', finishedStock: 0 },
+    { id: 'P2', productCode: 'PD-002', productName: 'エアフィルターシート', spec: '300mm×300mm', defaultCustomer: 'B社', materialType: 'PET不織布 30g/m²', speedPerHour: 500, minLotQty: 500, storageLocation: '倉庫A-2', finishedStock: 0 },
+    { id: 'P3', productCode: 'PD-003', productName: '養生シート小', spec: '900mm×1800mm', defaultCustomer: 'C社', materialType: 'PP不織布 15g/m²', speedPerHour: 600, minLotQty: 500, storageLocation: '倉庫B-1', finishedStock: 0 },
+  ],
   salesOrders: [
-    { id: 'SO1', orderNo: 'SO-0001', customerName: 'A社', productName: 'マスク用インナーシート', orderedQty: 5000, orderDate: '2026-07-20', dueDate: '2026-07-30' },
-    { id: 'SO2', orderNo: 'SO-0002', customerName: 'B社', productName: 'エアフィルターシート', orderedQty: 3000, orderDate: '2026-07-22', dueDate: '2026-08-02' },
-    { id: 'SO3', orderNo: 'SO-0003', customerName: 'C社', productName: '養生シート小', orderedQty: 1500, orderDate: '2026-07-23', dueDate: '2026-07-29' },
+    { id: 'SO1', orderNo: 'SO-0001', productId: 'P1', customerName: 'A社', productName: 'マスク用インナーシート', orderedQty: 5000, orderDate: '2026-07-20', dueDate: '2026-07-30' },
+    { id: 'SO2', orderNo: 'SO-0002', productId: 'P2', customerName: 'B社', productName: 'エアフィルターシート', orderedQty: 3000, orderDate: '2026-07-22', dueDate: '2026-08-02' },
+    { id: 'SO3', orderNo: 'SO-0003', productId: 'P3', customerName: 'C社', productName: '養生シート小', orderedQty: 1500, orderDate: '2026-07-23', dueDate: '2026-07-29' },
   ],
   lots: [
     { id: 'LOT1', lotNo: 'PP-20260701', materialName: 'PP不織布 20g/m²', widthMm: 1600, initialLength: 3000, remainingLength: 1150, unit: 'm', receivedDate: '2026-07-01', currency: 'USD', unitPriceForeign: 0.42, exchangeRate: 150 },
@@ -212,9 +219,9 @@ const DEFAULT_DATA = {
     { id: 'LOT3', lotNo: 'PP-20260715', materialName: 'PP不織布 15g/m²', widthMm: 1000, initialLength: 1500, remainingLength: 210, unit: 'm', receivedDate: '2026-07-15', currency: 'JPY', unitPriceForeign: 58, exchangeRate: 1 },
   ],
   orders: [
-    { id: 'O1', planNo: 'MO-0001', salesOrderId: 'SO1', productName: 'マスク用インナーシート', lineId: 'L1', lotId: 'LOT1', targetQty: 5000, startDate: '2026-07-24', dueDate: '2026-07-30' },
-    { id: 'O2', planNo: 'MO-0002', salesOrderId: 'SO2', productName: 'エアフィルターシート', lineId: 'L2', lotId: 'LOT2', targetQty: 3000, startDate: '2026-07-27', dueDate: '2026-08-02' },
-    { id: 'O3', planNo: 'MO-0003', salesOrderId: 'SO3', productName: '養生シート小', lineId: 'L3', lotId: 'LOT3', targetQty: 1500, startDate: '2026-07-24', dueDate: '2026-07-29' },
+    { id: 'O1', planNo: 'MO-0001', salesOrderId: 'SO1', productId: 'P1', productName: 'マスク用インナーシート', lineId: 'L1', lotId: 'LOT1', targetQty: 5000, startDate: '2026-07-24', dueDate: '2026-07-30' },
+    { id: 'O2', planNo: 'MO-0002', salesOrderId: 'SO2', productId: 'P2', productName: 'エアフィルターシート', lineId: 'L2', lotId: 'LOT2', targetQty: 3000, startDate: '2026-07-27', dueDate: '2026-08-02' },
+    { id: 'O3', planNo: 'MO-0003', salesOrderId: 'SO3', productId: 'P3', productName: '養生シート小', lineId: 'L3', lotId: 'LOT3', targetQty: 1500, startDate: '2026-07-24', dueDate: '2026-07-29' },
   ],
   records: [
     { id: 'R1', date: todayStr(), lineId: 'L1', orderId: 'O1', worker: '田中', machineUpQty: 700, inspectedQty: 600, foldedQty: 500, defectQty: 20, defectCause: '溶着不良', defectNote: '', materialUsedLength: 50 },
@@ -295,8 +302,8 @@ function PrimaryButton({ children, onClick, type = 'button', style }) {
 
 function Field({ label, children }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: C.textDim, flex: 1, minWidth: 120 }}>
-      {label}
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: C.textDim, flex: '1 1 150px', minWidth: 150 }}>
+      <span style={{ minHeight: 28, display: 'flex', alignItems: 'flex-end', lineHeight: 1.3 }}>{label}</span>
       {children}
     </label>
   );
@@ -445,6 +452,7 @@ function App() {
   const lotById = useCallback((id) => data?.lots.find((l) => l.id === id), [data]);
   const orderById = useCallback((id) => data?.orders.find((o) => o.id === id), [data]);
   const salesOrderById = useCallback((id) => data?.salesOrders.find((s) => s.id === id), [data]);
+  const productById = useCallback((id) => data?.products.find((p) => p.id === id), [data]);
 
   const orderStats = useCallback((orderId) => {
     const recs = (data?.records || []).filter((r) => r.orderId === orderId);
@@ -469,6 +477,10 @@ function App() {
   const addLine = (name) => setData((d) => ({ ...d, lines: [...d.lines, { id: uid('L'), name }] }));
   const removeLine = (id) => setData((d) => ({ ...d, lines: d.lines.filter((l) => l.id !== id) }));
 
+  const addProduct = (p) => setData((d) => ({ ...d, products: [...d.products, { id: uid('P'), ...p }] }));
+  const updateProduct = (id, patch) => setData((d) => ({ ...d, products: d.products.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+  const removeProduct = (id) => setData((d) => ({ ...d, products: d.products.filter((p) => p.id !== id) }));
+
   const addSalesOrder = (so) => setData((d) => ({ ...d, salesOrders: [...d.salesOrders, { id: uid('SO'), ...so }] }));
   const updateSalesOrder = (id, patch) => setData((d) => ({ ...d, salesOrders: d.salesOrders.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
   const removeSalesOrder = (id) => setData((d) => ({ ...d, salesOrders: d.salesOrders.filter((s) => s.id !== id) }));
@@ -483,14 +495,52 @@ function App() {
 
   const addRecord = (rec) => setData((d) => {
     let lots = d.lots;
+    let products = d.products;
     const ord = d.orders.find((o) => o.id === rec.orderId);
     if (ord && ord.lotId && rec.materialUsedLength) {
       lots = d.lots.map((l) => (l.id === ord.lotId ? { ...l, remainingLength: Math.max(0, num(l.remainingLength) - num(rec.materialUsedLength)) } : l));
     }
-    return { ...d, lots, records: [...d.records, { id: uid('R'), ...rec }] };
+    if (ord && ord.productId && rec.foldedQty) {
+      products = d.products.map((p) => (p.id === ord.productId ? { ...p, finishedStock: num(p.finishedStock) + num(rec.foldedQty) } : p));
+    }
+    return { ...d, lots, products, records: [...d.records, { id: uid('R'), ...rec }] };
   });
-  const updateRecord = (id, patch) => setData((d) => ({ ...d, records: d.records.map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
-  const removeRecord = (id) => setData((d) => ({ ...d, records: d.records.filter((r) => r.id !== id) }));
+  const updateRecord = (id, patch) => setData((d) => {
+    const old = d.records.find((r) => r.id === id);
+    if (!old) return d;
+    const merged = { ...old, ...patch };
+    let lots = d.lots;
+    let products = d.products;
+    const oldOrd = d.orders.find((o) => o.id === old.orderId);
+    const newOrd = d.orders.find((o) => o.id === merged.orderId);
+    if (oldOrd && oldOrd.lotId && old.materialUsedLength) {
+      lots = lots.map((l) => (l.id === oldOrd.lotId ? { ...l, remainingLength: num(l.remainingLength) + num(old.materialUsedLength) } : l));
+    }
+    if (newOrd && newOrd.lotId && merged.materialUsedLength) {
+      lots = lots.map((l) => (l.id === newOrd.lotId ? { ...l, remainingLength: Math.max(0, num(l.remainingLength) - num(merged.materialUsedLength)) } : l));
+    }
+    if (oldOrd && oldOrd.productId && old.foldedQty) {
+      products = products.map((p) => (p.id === oldOrd.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - num(old.foldedQty)) } : p));
+    }
+    if (newOrd && newOrd.productId && merged.foldedQty) {
+      products = products.map((p) => (p.id === newOrd.productId ? { ...p, finishedStock: num(p.finishedStock) + num(merged.foldedQty) } : p));
+    }
+    return { ...d, lots, products, records: d.records.map((r) => (r.id === id ? merged : r)) };
+  });
+  const removeRecord = (id) => setData((d) => {
+    const old = d.records.find((r) => r.id === id);
+    if (!old) return { ...d, records: d.records.filter((r) => r.id !== id) };
+    let lots = d.lots;
+    let products = d.products;
+    const ord = d.orders.find((o) => o.id === old.orderId);
+    if (ord && ord.lotId && old.materialUsedLength) {
+      lots = lots.map((l) => (l.id === ord.lotId ? { ...l, remainingLength: num(l.remainingLength) + num(old.materialUsedLength) } : l));
+    }
+    if (ord && ord.productId && old.foldedQty) {
+      products = products.map((p) => (p.id === ord.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - num(old.foldedQty)) } : p));
+    }
+    return { ...d, lots, products, records: d.records.filter((r) => r.id !== id) };
+  });
 
   if (loading || !data) {
     return (
@@ -504,6 +554,7 @@ function App() {
 
   const TABS = [
     { id: 'dashboard', label: 'ダッシュボード', icon: Gauge },
+    { id: 'products', label: '商品マスタ', icon: Box },
     { id: 'salesorders', label: '受注', icon: FileText },
     { id: 'plan', label: '生産計画', icon: ClipboardList },
     { id: 'inventory', label: '原反在庫', icon: Package },
@@ -575,11 +626,14 @@ function App() {
       {tab === 'dashboard' && (
         <DashboardTab data={data} lineById={lineById} orderById={orderById} lotById={lotById} orderStats={orderStats} salesOrderById={salesOrderById} salesOrderStats={salesOrderStats} />
       )}
+      {tab === 'products' && (
+        <ProductTab data={data} addProduct={addProduct} updateProduct={updateProduct} removeProduct={removeProduct} isEditor={isEditor} />
+      )}
       {tab === 'salesorders' && (
-        <SalesOrderTab data={data} addSalesOrder={addSalesOrder} updateSalesOrder={updateSalesOrder} removeSalesOrder={removeSalesOrder} salesOrderStats={salesOrderStats} isEditor={isEditor} />
+        <SalesOrderTab data={data} addSalesOrder={addSalesOrder} updateSalesOrder={updateSalesOrder} removeSalesOrder={removeSalesOrder} salesOrderStats={salesOrderStats} productById={productById} isEditor={isEditor} />
       )}
       {tab === 'plan' && (
-        <PlanTab data={data} orderStats={orderStats} addOrder={addOrder} updateOrder={updateOrder} removeOrder={removeOrder} lineById={lineById} lotById={lotById} addLine={addLine} removeLine={removeLine} salesOrderById={salesOrderById} isEditor={isEditor} />
+        <PlanTab data={data} orderStats={orderStats} addOrder={addOrder} updateOrder={updateOrder} removeOrder={removeOrder} lineById={lineById} lotById={lotById} addLine={addLine} removeLine={removeLine} salesOrderById={salesOrderById} productById={productById} isEditor={isEditor} />
       )}
       {tab === 'inventory' && (
         <InventoryTab data={data} addLot={addLot} updateLot={updateLot} removeLot={removeLot} isEditor={isEditor} />
@@ -620,6 +674,11 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
   const planRows = data.orders.map((o) => ({ o, st: orderStats(o.id) }));
   const completedPlans = planRows.filter(({ o, st }) => o.targetQty > 0 && st.folded >= o.targetQty);
   const completedToday = completedPlans.filter(({ o }) => data.records.some((r) => r.orderId === o.id && r.date === date));
+
+  // 在庫状況(原反・仕掛品・完成品)のサマリー
+  const wipStock = planRows.reduce((sum, { st }) => sum + Math.max(0, st.machineUp - st.folded), 0);
+  const finishedStockTotal = data.products.reduce((sum, p) => sum + num(p.finishedStock), 0);
+  const rawMaterialTotalRemaining = data.lots.reduce((sum, l) => sum + num(l.remainingLength), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -755,6 +814,139 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
           </div>
         )}
       </Panel>
+
+      {/* 在庫状況サマリー(原反・仕掛品・完成品) */}
+      <Panel style={{ padding: 16 }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>在庫状況(原反・仕掛品・完成品)</div>
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>原反(仕入れた原材料)・仕掛品(機械上がり済みでまだ完成していないもの)・完成品(たたみ済みで出荷待ちのもの)の3段階で在庫を確認できます。</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+          <StatCard icon={Package} label="原反 残量合計" value={fmt(Math.round(rawMaterialTotalRemaining))} unit="m" tone="teal" />
+          <StatCard icon={Activity} label="仕掛品在庫(機械上がり〜たたみ前)" value={fmt(wipStock)} unit="枚" tone="amber" />
+          <StatCard icon={CheckCircle2} label="完成品在庫(全商品合計)" value={fmt(finishedStockTotal)} unit="枚" tone="green" />
+        </div>
+        {data.products.length > 0 && (
+          <>
+            <div className="fm-display" style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.textDim }}>完成品在庫(商品別)</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {data.products.map((p) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, background: C.panelAlt, borderRadius: 6, padding: '6px 10px' }}>
+                  <span className="fm-mono" style={{ color: C.textFaint, fontSize: 11, minWidth: 60 }}>{p.productCode}</span>
+                  <span style={{ minWidth: 160 }}>{p.productName}</span>
+                  <span style={{ fontSize: 11, color: C.textFaint }}>{p.storageLocation || '—'}</span>
+                  <span className="fm-mono" style={{ marginLeft: 'auto', color: C.green }}>{fmt(p.finishedStock)}枚</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 商品マスタタブ                                                       */
+/* ------------------------------------------------------------------ */
+function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }) {
+  const blankForm = {
+    productCode: '', productName: '', spec: '', defaultCustomer: '', materialType: '',
+    speedPerHour: '', minLotQty: '', storageLocation: '', finishedStock: '',
+  };
+  const [form, setForm] = useState(blankForm);
+  const [editingId, setEditingId] = useState(null);
+  const [err, setErr] = useState('');
+
+  const startEdit = (p) => {
+    setEditingId(p.id);
+    setForm({
+      productCode: p.productCode, productName: p.productName, spec: p.spec || '',
+      defaultCustomer: p.defaultCustomer || '', materialType: p.materialType || '',
+      speedPerHour: String(p.speedPerHour || ''), minLotQty: String(p.minLotQty || ''),
+      storageLocation: p.storageLocation || '', finishedStock: String(p.finishedStock ?? '0'),
+    });
+  };
+  const cancelEdit = () => { setEditingId(null); setForm(blankForm); setErr(''); };
+
+  const submit = () => {
+    if (!form.productCode || !form.productName) {
+      setErr('商品コード・商品名は必須です。');
+      return;
+    }
+    setErr('');
+    const payload = {
+      ...form,
+      speedPerHour: Number(form.speedPerHour) || 0,
+      minLotQty: Number(form.minLotQty) || 0,
+      finishedStock: Number(form.finishedStock) || 0,
+    };
+    if (editingId) {
+      updateProduct(editingId, payload);
+      setEditingId(null);
+    } else {
+      addProduct(payload);
+    }
+    setForm(blankForm);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {isEditor ? (
+        <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{editingId ? '商品を編集' : '商品を登録'}</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注・生産計画から選べる商品台帳です。標準生産速度を入れておくと、計画作成時に目安の所要時間が自動表示されます。</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <Field label="商品コード"><input className="fm-input" value={form.productCode} onChange={(e) => setForm({ ...form, productCode: e.target.value })} placeholder="PD-004" /></Field>
+            <Field label="商品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
+            <Field label="規格・サイズ"><input className="fm-input" value={form.spec} onChange={(e) => setForm({ ...form, spec: e.target.value })} placeholder="175mm×95mm" /></Field>
+            <Field label="主要得意先"><input className="fm-input" value={form.defaultCustomer} onChange={(e) => setForm({ ...form, defaultCustomer: e.target.value })} placeholder="例: A社" /></Field>
+            <Field label="使用原材料"><input className="fm-input" value={form.materialType} onChange={(e) => setForm({ ...form, materialType: e.target.value })} placeholder="PP不織布 20g/m²" /></Field>
+            <Field label="標準生産速度(枚/時間)"><input type="number" className="fm-input" value={form.speedPerHour} onChange={(e) => setForm({ ...form, speedPerHour: e.target.value })} placeholder="800" /></Field>
+            <Field label="最低ロット(枚)"><input type="number" className="fm-input" value={form.minLotQty} onChange={(e) => setForm({ ...form, minLotQty: e.target.value })} placeholder="1000" /></Field>
+            <Field label="保管場所"><input className="fm-input" value={form.storageLocation} onChange={(e) => setForm({ ...form, storageLocation: e.target.value })} placeholder="倉庫A-1" /></Field>
+            <Field label="完成品在庫(枚)"><input type="number" className="fm-input" value={form.finishedStock} onChange={(e) => setForm({ ...form, finishedStock: e.target.value })} placeholder="0" /></Field>
+          </div>
+          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <PrimaryButton onClick={submit}>{editingId ? <CheckCircle2 size={14} /> : <Plus size={14} />} {editingId ? '更新を保存' : '商品を登録'}</PrimaryButton>
+            {editingId && <PrimaryButton onClick={cancelEdit} style={{ background: C.panelAlt2, color: C.text }}>キャンセル</PrimaryButton>}
+          </div>
+        </Panel>
+      ) : (
+        <LockedNotice text="商品の登録・編集にはログインが必要です。" />
+      )}
+
+      <Panel style={{ padding: 16, overflowX: 'auto' }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>商品一覧</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 900 }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
+              {['商品コード', '商品名', '規格', '主要得意先', '使用原材料', '生産速度', '最低ロット', '保管場所', '完成品在庫', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {data.products.length === 0 && (
+              <tr><td colSpan={10} style={{ padding: 14, color: C.textFaint }}>商品がありません。上のフォームから登録してください。</td></tr>
+            )}
+            {data.products.map((p) => (
+              <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, background: p.id === editingId ? C.tealDim + '55' : 'transparent' }}>
+                <td className="fm-mono" style={{ padding: '8px' }}>{p.productCode}</td>
+                <td style={{ padding: '8px' }}>{p.productName}</td>
+                <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.spec || '—'}</td>
+                <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.defaultCustomer || '—'}</td>
+                <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.materialType || '—'}</td>
+                <td className="fm-mono" style={{ padding: '8px' }}>{p.speedPerHour ? `${fmt(p.speedPerHour)}枚/h` : '—'}</td>
+                <td className="fm-mono" style={{ padding: '8px' }}>{p.minLotQty ? `${fmt(p.minLotQty)}枚` : '—'}</td>
+                <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.storageLocation || '—'}</td>
+                <td className="fm-mono" style={{ padding: '8px' }}>{fmt(p.finishedStock)}枚</td>
+                <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
+                  {isEditor && <IconBtn onClick={() => startEdit(p)} title="編集" icon={Pencil} />}
+                  {isEditor && <IconBtn onClick={() => removeProduct(p.id)} title="削除" danger />}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
     </div>
   );
 }
@@ -762,17 +954,27 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
 /* ------------------------------------------------------------------ */
 /* 受注タブ                                                             */
 /* ------------------------------------------------------------------ */
-function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder, salesOrderStats, isEditor }) {
-  const blankForm = { orderNo: '', customerName: '', productName: '', orderedQty: '', orderDate: todayStr(), dueDate: '' };
+function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder, salesOrderStats, productById, isEditor }) {
+  const blankForm = { orderNo: '', productId: '', customerName: '', productName: '', orderedQty: '', orderDate: todayStr(), dueDate: '' };
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState(null);
   const [err, setErr] = useState('');
 
   const startEdit = (so) => {
     setEditingId(so.id);
-    setForm({ orderNo: so.orderNo, customerName: so.customerName, productName: so.productName, orderedQty: String(so.orderedQty), orderDate: so.orderDate, dueDate: so.dueDate });
+    setForm({ orderNo: so.orderNo, productId: so.productId || '', customerName: so.customerName, productName: so.productName, orderedQty: String(so.orderedQty), orderDate: so.orderDate, dueDate: so.dueDate });
   };
   const cancelEdit = () => { setEditingId(null); setForm(blankForm); setErr(''); };
+
+  const onPickProduct = (productId) => {
+    const p = productById(productId);
+    setForm((f) => ({
+      ...f,
+      productId,
+      productName: p ? p.productName : f.productName,
+      customerName: p && !f.customerName ? (p.defaultCustomer || f.customerName) : f.customerName,
+    }));
+  };
 
   const submit = () => {
     if (!form.orderNo || !form.customerName || !form.productName || !form.orderedQty || !form.dueDate) {
@@ -805,12 +1007,21 @@ function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder
           <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>お客様からの注文をここに登録します。この後「生産計画」タブでラインへの割り当てを行います。</div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
             <Field label="受注番号"><input className="fm-input" value={form.orderNo} onChange={(e) => setForm({ ...form, orderNo: e.target.value })} placeholder="SO-0004" /></Field>
+            <Field label="商品(任意)">
+              <select className="fm-input" value={form.productId} onChange={(e) => onPickProduct(e.target.value)}>
+                <option value="">選択しない(自由入力)</option>
+                {data.products.map((p) => <option key={p.id} value={p.id}>{p.productCode} - {p.productName}</option>)}
+              </select>
+            </Field>
             <Field label="得意先名"><input className="fm-input" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="例: D社" /></Field>
             <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
             <Field label="受注数量(枚)"><input type="number" className="fm-input" value={form.orderedQty} onChange={(e) => setForm({ ...form, orderedQty: e.target.value })} placeholder="5000" /></Field>
             <Field label="受注日"><input type="date" className="fm-input" value={form.orderDate} onChange={(e) => setForm({ ...form, orderDate: e.target.value })} /></Field>
             <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
           </div>
+          {form.productId && Number(form.orderedQty) > 0 && productById(form.productId)?.minLotQty > Number(form.orderedQty) && (
+            <div style={{ color: C.amber, fontSize: 12, marginBottom: 8 }}>⚠ この商品の最低ロット({fmt(productById(form.productId).minLotQty)}枚)を下回っています。</div>
+          )}
           {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <PrimaryButton onClick={submit}>{editingId ? <CheckCircle2 size={14} /> : <Plus size={14} />} {editingId ? '更新を保存' : '受注を追加'}</PrimaryButton>
@@ -870,8 +1081,8 @@ function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder
 /* ------------------------------------------------------------------ */
 /* 生産計画タブ                                                         */
 /* ------------------------------------------------------------------ */
-function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineById, lotById, addLine, removeLine, salesOrderById, isEditor }) {
-  const blankForm = { planNo: '', salesOrderId: '', productName: '', lineId: data.lines[0]?.id || '', lotId: '', targetQty: '', startDate: todayStr(), dueDate: '' };
+function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineById, lotById, addLine, removeLine, salesOrderById, productById, isEditor }) {
+  const blankForm = { planNo: '', salesOrderId: '', productId: '', productName: '', lineId: data.lines[0]?.id || '', lotId: '', targetQty: '', startDate: todayStr(), dueDate: '' };
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState(null);
   const [newLine, setNewLine] = useState('');
@@ -880,7 +1091,7 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
   const startEdit = (o) => {
     setEditingId(o.id);
     setForm({
-      planNo: o.planNo, salesOrderId: o.salesOrderId || '', productName: o.productName,
+      planNo: o.planNo, salesOrderId: o.salesOrderId || '', productId: o.productId || '', productName: o.productName,
       lineId: o.lineId, lotId: o.lotId || '', targetQty: String(o.targetQty),
       startDate: planStart(o), dueDate: planEnd(o),
     });
@@ -911,11 +1122,27 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
     setForm((f) => ({
       ...f,
       salesOrderId: soId,
+      productId: so && so.productId ? so.productId : f.productId,
       productName: so ? so.productName : f.productName,
       targetQty: so && !f.targetQty ? String(so.orderedQty) : f.targetQty,
       dueDate: so ? so.dueDate : f.dueDate,
     }));
   };
+
+  const onPickProduct = (productId) => {
+    const p = productById(productId);
+    setForm((f) => ({
+      ...f,
+      productId,
+      productName: p ? p.productName : f.productName,
+    }));
+  };
+
+  const selectedProduct = productById(form.productId);
+  const estimatedHours = selectedProduct && selectedProduct.speedPerHour > 0 && Number(form.targetQty) > 0
+    ? Number(form.targetQty) / selectedProduct.speedPerHour
+    : null;
+  const belowMinLot = selectedProduct && selectedProduct.minLotQty > 0 && Number(form.targetQty) > 0 && Number(form.targetQty) < selectedProduct.minLotQty;
 
   const rows = data.orders.map((o) => {
     const st = orderStats(o.id);
@@ -939,6 +1166,12 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
               </select>
             </Field>
             <Field label="計画番号"><input className="fm-input" value={form.planNo} onChange={(e) => setForm({ ...form, planNo: e.target.value })} placeholder="MO-0004" /></Field>
+            <Field label="商品(任意)">
+              <select className="fm-input" value={form.productId} onChange={(e) => onPickProduct(e.target.value)}>
+                <option value="">選択しない</option>
+                {data.products.map((p) => <option key={p.id} value={p.id}>{p.productCode} - {p.productName}</option>)}
+              </select>
+            </Field>
             <Field label="製品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
             <Field label="ライン">
               <select className="fm-input" value={form.lineId} onChange={(e) => setForm({ ...form, lineId: e.target.value })}>
@@ -955,6 +1188,14 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
             <Field label="開始日"><input type="date" className="fm-input" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></Field>
             <Field label="終了日(納期)"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
           </div>
+          {estimatedHours !== null && (
+            <div style={{ fontSize: 12, color: C.teal, marginBottom: 8 }}>
+              ⏱ 目安所要時間: 約{estimatedHours.toFixed(1)}時間(標準速度 {fmt(selectedProduct.speedPerHour)}枚/時間で計算)
+            </div>
+          )}
+          {belowMinLot && (
+            <div style={{ color: C.amber, fontSize: 12, marginBottom: 8 }}>⚠ この商品の最低ロット({fmt(selectedProduct.minLotQty)}枚)を下回っています。</div>
+          )}
           {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <PrimaryButton onClick={submit}>{editingId ? <CheckCircle2 size={14} /> : <Plus size={14} />} {editingId ? '更新を保存' : '計画を追加'}</PrimaryButton>

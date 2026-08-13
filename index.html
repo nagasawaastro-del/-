@@ -168,7 +168,7 @@ const fmt = (v) => num(v).toLocaleString('ja-JP');
 const pct = (a, b) => (b > 0 ? Math.max(0, Math.min(100, (a / b) * 100)) : 0);
 const CURRENCIES = ['JPY', 'USD', 'EUR', 'CNY'];
 // 過去バージョンで単位が英語表記(roll)で保存されていた場合の互換表示
-const unitLabel = (u) => (u === 'roll' ? '本' : u || 'm');
+const unitLabel = (u) => (u === 'roll' ? '本' : u || '個');
 const lotUnitCostJPY = (lot) => (lot.currency === 'JPY' ? num(lot.unitPriceForeign) : num(lot.unitPriceForeign) * num(lot.exchangeRate || 1));
 const lotTotalCostJPY = (lot) => lotUnitCostJPY(lot) * num(lot.initialLength);
 
@@ -194,6 +194,7 @@ const normalizeData = (loaded) => {
     lots: Array.isArray(loaded.lots) ? loaded.lots : [],
     orders: Array.isArray(loaded.orders) ? loaded.orders : [],
     records: Array.isArray(loaded.records) ? loaded.records : [],
+    materialTransactions: Array.isArray(loaded.materialTransactions) ? loaded.materialTransactions : [],
   };
 };
 
@@ -230,6 +231,7 @@ const DEFAULT_DATA = {
     { id: 'R1b', date: todayStr(), lineId: 'L1', orderId: 'O1', worker: '佐藤', machineUpQty: 500, inspectedQty: 400, foldedQty: 300, defectQty: 10, defectCause: '寸法不良', defectNote: '', materialUsedLength: 30 },
     { id: 'R2', date: todayStr(), lineId: 'L2', orderId: 'O2', worker: '鈴木', machineUpQty: 600, inspectedQty: 600, foldedQty: 500, defectQty: 10, defectCause: '寸法不良', defectNote: '', materialUsedLength: 40 },
   ],
+  materialTransactions: [],
 };
 
 /* ------------------------------------------------------------------ */
@@ -491,6 +493,22 @@ function App() {
   const updateLot = (id, patch) => setData((d) => ({ ...d, lots: d.lots.map((l) => (l.id === id ? { ...l, ...patch } : l)) }));
   const removeLot = (id) => setData((d) => ({ ...d, lots: d.lots.filter((l) => l.id !== id) }));
 
+  // 資材の入出庫記録(生産計画とは独立して、日々の在庫の増減だけを記録する)
+  const addMaterialTransaction = (tx) => setData((d) => {
+    const lot = d.lots.find((l) => l.id === tx.lotId);
+    if (!lot) return d;
+    const delta = tx.type === '入庫' ? num(tx.qty) : -num(tx.qty);
+    const lots = d.lots.map((l) => (l.id === tx.lotId ? { ...l, remainingLength: Math.max(0, num(l.remainingLength) + delta) } : l));
+    return { ...d, lots, materialTransactions: [...d.materialTransactions, { id: uid('MT'), ...tx }] };
+  });
+  const removeMaterialTransaction = (id) => setData((d) => {
+    const tx = d.materialTransactions.find((t) => t.id === id);
+    if (!tx) return { ...d, materialTransactions: d.materialTransactions.filter((t) => t.id !== id) };
+    const delta = tx.type === '入庫' ? -num(tx.qty) : num(tx.qty);
+    const lots = d.lots.map((l) => (l.id === tx.lotId ? { ...l, remainingLength: Math.max(0, num(l.remainingLength) + delta) } : l));
+    return { ...d, lots, materialTransactions: d.materialTransactions.filter((t) => t.id !== id) };
+  });
+
   const addOrder = (order) => setData((d) => ({ ...d, orders: [...d.orders, { id: uid('O'), ...order }] }));
   const updateOrder = (id, patch) => setData((d) => ({ ...d, orders: d.orders.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
   const removeOrder = (id) => setData((d) => ({ ...d, orders: d.orders.filter((o) => o.id !== id), records: d.records.filter((r) => r.orderId !== id) }));
@@ -559,7 +577,7 @@ function App() {
     { id: 'products', label: '商品マスタ', icon: Box },
     { id: 'salesorders', label: '受注', icon: FileText },
     { id: 'plan', label: '生産計画', icon: ClipboardList },
-    { id: 'inventory', label: '原反在庫', icon: Package },
+    { id: 'inventory', label: '資材管理', icon: Package },
     { id: 'production', label: '生産実績・WIP', icon: Activity },
     { id: 'calendar', label: 'カレンダー', icon: Calendar },
     { id: 'quality', label: '品質管理', icon: AlertTriangle },
@@ -577,7 +595,7 @@ function App() {
           </div>
           <div>
             <div className="fm-display" style={{ fontSize: 22, fontWeight: 700, lineHeight: 1 }}>不織布加工 生産管理</div>
-            <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>原反 → 溶着・裁断 → 検品 → たたみ 工程トラッカー</div>
+            <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>資材 → 溶着・裁断 → 検品 → たたみ 工程トラッカー</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
@@ -638,7 +656,7 @@ function App() {
         <PlanTab data={data} orderStats={orderStats} addOrder={addOrder} updateOrder={updateOrder} removeOrder={removeOrder} lineById={lineById} lotById={lotById} addLine={addLine} removeLine={removeLine} salesOrderById={salesOrderById} productById={productById} isEditor={isEditor} />
       )}
       {tab === 'inventory' && (
-        <InventoryTab data={data} addLot={addLot} updateLot={updateLot} removeLot={removeLot} isEditor={isEditor} />
+        <InventoryTab data={data} addLot={addLot} updateLot={updateLot} removeLot={removeLot} addMaterialTransaction={addMaterialTransaction} removeMaterialTransaction={removeMaterialTransaction} isEditor={isEditor} />
       )}
       {tab === 'production' && (
         <ProductionTab data={data} addRecord={addRecord} updateRecord={updateRecord} removeRecord={removeRecord} lineById={lineById} orderById={orderById} orderStats={orderStats} productById={productById} lotById={lotById} isEditor={isEditor} />
@@ -677,18 +695,17 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
   const completedPlans = planRows.filter(({ o, st }) => o.targetQty > 0 && st.folded >= o.targetQty);
   const completedToday = completedPlans.filter(({ o }) => data.records.some((r) => r.orderId === o.id && r.date === date));
 
-  // 在庫状況(原反・仕掛品・完成品)のサマリー
+  // 在庫状況(資材・仕掛品・完成品)のサマリー
   const wipStock = planRows.reduce((sum, { st }) => sum + Math.max(0, st.machineUp - st.folded), 0);
   const finishedStockTotal = data.products.reduce((sum, p) => sum + num(p.finishedStock), 0);
   const rawMaterialByUnit = data.lots.reduce((map, l) => {
-    const u = l.unit || 'm';
-    const label = unitLabel(u);
+    const label = unitLabel(l.unit);
     map[label] = (map[label] || 0) + num(l.remainingLength);
     return map;
   }, {});
   const rawMaterialSummary = Object.entries(rawMaterialByUnit).map(([u, v]) => `${fmt(v)}${u}`).join(' / ') || '0';
 
-  // 原材料名ごとの内訳(同じ原反名のロットをまとめて集計)
+  // 原材料名ごとの内訳(同じ資材名のロットをまとめて集計)
   const rawMaterialByName = Object.values(data.lots.reduce((map, l) => {
     const key = l.materialName || '(名称未設定)';
     if (!map[key]) map[key] = { name: key, remaining: 0, initial: 0, unit: unitLabel(l.unit), lotCount: 0 };
@@ -698,7 +715,7 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
     return map;
   }, {}));
 
-  // 商品ごとの在庫内訳(原反・仕掛品・完成品)
+  // 商品ごとの在庫内訳(資材・仕掛品・完成品)
   const productStockRows = data.products.map((p) => {
     const linkedOrders = data.orders.filter((o) => o.productId === p.id);
     const wip = linkedOrders.reduce((sum, o) => {
@@ -824,11 +841,11 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
         </div>
       </Panel>
 
-      {/* 原反アラート */}
+      {/* 資材アラート */}
       <Panel style={{ padding: 16 }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 10 }}>原反 残量アラート(残20%未満)</div>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 10 }}>資材 残量アラート(残20%未満)</div>
         {lowStockLots.length === 0 ? (
-          <div style={{ fontSize: 13, color: C.textFaint }}>アラート対象の原反はありません。</div>
+          <div style={{ fontSize: 13, color: C.textFaint }}>アラート対象の資材はありません。</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {lowStockLots.map((l) => (
@@ -845,18 +862,18 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
         )}
       </Panel>
 
-      {/* 在庫状況サマリー(原反・仕掛品・完成品) */}
+      {/* 在庫状況サマリー(資材・仕掛品・完成品) */}
       <Panel style={{ padding: 16 }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>在庫状況(原反・仕掛品・完成品)</div>
-        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>原反(仕入れた原材料)・仕掛品(機械上がり済みでまだ完成していないもの)・完成品(たたみ済みで出荷待ちのもの)の3段階で在庫を確認できます。</div>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>在庫状況(資材・仕掛品・完成品)</div>
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>資材(仕入れた原材料)・仕掛品(機械上がり済みでまだ完成していないもの)・完成品(たたみ済みで出荷待ちのもの)の3段階で在庫を確認できます。</div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-          <StatCard icon={Package} label="原反 残量合計(単位別)" value={rawMaterialSummary} unit="" tone="teal" />
+          <StatCard icon={Package} label="資材 残量合計(単位別)" value={rawMaterialSummary} unit="" tone="teal" />
           <StatCard icon={Activity} label="仕掛品在庫(機械上がり〜たたみ前)" value={fmt(wipStock)} unit="枚" tone="amber" />
           <StatCard icon={CheckCircle2} label="完成品在庫(全商品合計)" value={fmt(finishedStockTotal)} unit="枚" tone="green" />
         </div>
         {rawMaterialByName.length > 0 && (
           <>
-            <div className="fm-display" style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.textDim }}>原反 残量(原材料別)</div>
+            <div className="fm-display" style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.textDim }}>資材 残量(原材料別)</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
               {rawMaterialByName.map((m) => {
                 const ratio = pct(m.remaining, m.initial);
@@ -880,7 +897,7 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
                 <thead>
                   <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-                    {['商品', '保管場所', '原反(紐づくロット)', '仕掛品在庫', '完成品在庫'].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+                    {['商品', '保管場所', '資材(紐づくロット)', '仕掛品在庫', '完成品在庫'].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -967,14 +984,14 @@ function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }
       {isEditor ? (
         <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
           <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{editingId ? '商品を編集' : '商品を登録'}</div>
-          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注・生産計画から選べる商品台帳です。標準生産速度と原反使用量(原単位)を入れておくと、計画・実績入力で自動計算されます。</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注・生産計画から選べる商品台帳です。標準生産速度と資材使用量(原単位)を入れておくと、計画・実績入力で自動計算されます。</div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
             <Field label="商品コード"><input className="fm-input" value={form.productCode} onChange={(e) => setForm({ ...form, productCode: e.target.value })} placeholder="PD-004" /></Field>
             <Field label="商品名"><input className="fm-input" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="例: マスク用シート" /></Field>
             <Field label="規格・サイズ"><input className="fm-input" value={form.spec} onChange={(e) => setForm({ ...form, spec: e.target.value })} placeholder="175mm×95mm" /></Field>
             <Field label="主要得意先"><input className="fm-input" value={form.defaultCustomer} onChange={(e) => setForm({ ...form, defaultCustomer: e.target.value })} placeholder="例: A社" /></Field>
             <Field label="使用原材料"><input className="fm-input" value={form.materialType} onChange={(e) => setForm({ ...form, materialType: e.target.value })} placeholder="PP不織布 20g/m²" /></Field>
-            <Field label="原反使用量(1枚あたり)"><input type="number" step="0.001" className="fm-input" value={form.materialPerUnit} onChange={(e) => setForm({ ...form, materialPerUnit: e.target.value })} placeholder="0.05" /></Field>
+            <Field label="資材使用量(1枚あたり)"><input type="number" step="0.001" className="fm-input" value={form.materialPerUnit} onChange={(e) => setForm({ ...form, materialPerUnit: e.target.value })} placeholder="0.05" /></Field>
             <Field label="標準生産速度(枚/時間)"><input type="number" className="fm-input" value={form.speedPerHour} onChange={(e) => setForm({ ...form, speedPerHour: e.target.value })} placeholder="800" /></Field>
             <Field label="最低ロット(枚)"><input type="number" className="fm-input" value={form.minLotQty} onChange={(e) => setForm({ ...form, minLotQty: e.target.value })} placeholder="1000" /></Field>
             <Field label="保管場所"><input className="fm-input" value={form.storageLocation} onChange={(e) => setForm({ ...form, storageLocation: e.target.value })} placeholder="倉庫A-1" /></Field>
@@ -1269,7 +1286,7 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
       {isEditor ? (
         <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
           <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{editingId ? '生産計画を編集' : '生産計画を追加'}</div>
-          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注に対してライン・原反・目標数量・生産期間を割り当てます。受注と紐づけない在庫生産もOK。</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>受注に対してライン・資材・目標数量・生産期間を割り当てます。受注と紐づけない在庫生産もOK。</div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
             <Field label="紐づく受注(任意)">
               <select className="fm-input" value={form.salesOrderId} onChange={(e) => onPickSalesOrder(e.target.value)}>
@@ -1299,7 +1316,7 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
                 {data.lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </Field>
-            <Field label="使用原反(任意)">
+            <Field label="使用資材(任意)">
               <select className="fm-input" value={form.lotId} onChange={(e) => setForm({ ...form, lotId: e.target.value })}>
                 <option value="">未指定</option>
                 {sortedLots.map((l) => (
@@ -1323,7 +1340,7 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
           )}
           {requiredMaterial !== null && (
             <div style={{ fontSize: 12, color: insufficientStock ? C.red : C.teal, marginBottom: 8 }}>
-              📐 必要原反量の目安: 約{requiredMaterial.toFixed(2)}{unitLabel(selectedLot?.unit)}(1枚あたり{selectedProduct.materialPerUnit}で計算)
+              📐 必要資材量の目安: 約{requiredMaterial.toFixed(2)}{unitLabel(selectedLot?.unit)}(1枚あたり{selectedProduct.materialPerUnit}で計算)
               {selectedLot && (insufficientStock
                 ? ` — 選択中のロットの残量(${fmt(selectedLot.remainingLength)}${unitLabel(selectedLot.unit)})が不足しています`
                 : ` — 選択中のロットの残量: ${fmt(selectedLot.remainingLength)}${unitLabel(selectedLot.unit)}`)}
@@ -1351,7 +1368,7 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 780 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['計画番号', '受注/得意先', '製品名', 'ライン', '原反', '進捗(たたみ済/目標)', '生産期間', '状態', ''].map((h) => (
+              {['計画番号', '受注/得意先', '製品名', 'ライン', '資材', '進捗(たたみ済/目標)', '生産期間', '状態', ''].map((h) => (
                 <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>
               ))}
             </tr>
@@ -1416,16 +1433,20 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
 }
 
 /* ------------------------------------------------------------------ */
-/* 原反在庫タブ                                                         */
+/* 資材在庫タブ                                                         */
 /* ------------------------------------------------------------------ */
-function InventoryTab({ data, addLot, updateLot, removeLot, isEditor }) {
+function InventoryTab({ data, addLot, updateLot, removeLot, addMaterialTransaction, removeMaterialTransaction, isEditor }) {
   const blankForm = {
-    lotNo: '', materialName: '', widthMm: '', initialLength: '', remainingLength: '', unit: 'm', receivedDate: todayStr(),
-    currency: 'JPY', unitPriceForeign: '', exchangeRate: '1',
+    lotNo: '', materialName: '', initialLength: '', remainingLength: '', receivedDate: todayStr(),
+    unitPriceForeign: '',
   };
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState(null);
   const [err, setErr] = useState('');
+
+  const blankTxForm = { lotId: data.lots[0]?.id || '', date: todayStr(), type: '入庫', qty: '', note: '' };
+  const [txForm, setTxForm] = useState(blankTxForm);
+  const [txErr, setTxErr] = useState('');
 
   const materialTypeOptions = useMemo(
     () => [...new Set(data.products.map((p) => p.materialType).filter(Boolean))],
@@ -1435,27 +1456,28 @@ function InventoryTab({ data, addLot, updateLot, removeLot, isEditor }) {
   const startEdit = (l) => {
     setEditingId(l.id);
     setForm({
-      lotNo: l.lotNo, materialName: l.materialName, widthMm: String(l.widthMm || ''),
+      lotNo: l.lotNo, materialName: l.materialName,
       initialLength: String(l.initialLength), remainingLength: String(l.remainingLength),
-      unit: l.unit || 'm', receivedDate: l.receivedDate,
-      currency: l.currency || 'JPY', unitPriceForeign: String(l.unitPriceForeign || ''), exchangeRate: String(l.exchangeRate || '1'),
+      receivedDate: l.receivedDate, unitPriceForeign: String(l.unitPriceForeign || ''),
     });
   };
   const cancelEdit = () => { setEditingId(null); setForm(blankForm); setErr(''); };
 
   const submit = () => {
     if (!form.lotNo || !form.materialName || !form.initialLength) {
-      setErr('ロット番号・原反名・初期数量は必須です。');
+      setErr('ロット番号・資材名・初期数量は必須です。');
       return;
     }
     setErr('');
     const payload = {
-      ...form,
-      widthMm: Number(form.widthMm) || 0,
+      lotNo: form.lotNo,
+      materialName: form.materialName,
       initialLength: Number(form.initialLength),
       remainingLength: form.remainingLength === '' ? Number(form.initialLength) : Number(form.remainingLength),
+      receivedDate: form.receivedDate,
       unitPriceForeign: Number(form.unitPriceForeign) || 0,
-      exchangeRate: form.currency === 'JPY' ? 1 : Number(form.exchangeRate) || 1,
+      currency: 'JPY',
+      exchangeRate: 1,
     };
     if (editingId) {
       updateLot(editingId, payload);
@@ -1471,48 +1493,25 @@ function InventoryTab({ data, addLot, updateLot, removeLot, isEditor }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <StatCard icon={Coins} label="在庫金額(円換算・残量ベース)" value={fmt(Math.round(totalInventoryValue))} unit="円" tone="amber" />
+        <StatCard icon={Coins} label="在庫金額(円・残量ベース)" value={fmt(Math.round(totalInventoryValue))} unit="円" tone="amber" />
         <StatCard icon={Package} label="ロット数" value={data.lots.length} unit="件" tone="teal" />
       </div>
 
       {isEditor ? (
         <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
-          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{editingId ? '原反ロットを編集' : '原反ロットを追加'}</div>
-          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>仕入れ時の通貨・単価・為替レートを記録すると、円換算コストが自動計算されます。</div>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{editingId ? '資材ロットを編集' : '資材ロットを追加'}</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>円での仕入単価を記録すると、在庫金額が自動計算されます。</div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
             <Field label="ロット番号"><input className="fm-input" value={form.lotNo} onChange={(e) => setForm({ ...form, lotNo: e.target.value })} placeholder="PP-20260727" /></Field>
-            <Field label="原反名">
+            <Field label="資材名">
               <input list="material-type-options" className="fm-input" value={form.materialName} onChange={(e) => setForm({ ...form, materialName: e.target.value })} placeholder="PP不織布 20g/m²" />
               <datalist id="material-type-options">
                 {materialTypeOptions.map((m) => <option key={m} value={m} />)}
               </datalist>
             </Field>
-            <Field label="幅(mm)"><input type="number" className="fm-input" value={form.widthMm} onChange={(e) => setForm({ ...form, widthMm: e.target.value })} placeholder="1600" /></Field>
-            <Field label="初期数量"><input type="number" className="fm-input" value={form.initialLength} onChange={(e) => setForm({ ...form, initialLength: e.target.value })} placeholder="3000" /></Field>
-            <Field label="単位">
-              <select className="fm-input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
-                <option value="m">m</option>
-                <option value="kg">kg</option>
-                <option value="本">本</option>
-              </select>
-            </Field>
+            <Field label="初期数量(個)"><input type="number" className="fm-input" value={form.initialLength} onChange={(e) => setForm({ ...form, initialLength: e.target.value })} placeholder="3000" /></Field>
+            <Field label="単価(円)"><input type="number" step="0.01" className="fm-input" value={form.unitPriceForeign} onChange={(e) => setForm({ ...form, unitPriceForeign: e.target.value })} placeholder="63" /></Field>
             <Field label="入荷日"><input type="date" className="fm-input" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} /></Field>
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10, paddingTop: 10, borderTop: `1px dashed ${C.border}` }}>
-            <Field label="仕入通貨">
-              <select className="fm-input" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value, exchangeRate: e.target.value === 'JPY' ? '1' : form.exchangeRate })}>
-                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
-            <Field label={`単価(${form.currency}/${form.unit || 'm'})`}><input type="number" step="0.01" className="fm-input" value={form.unitPriceForeign} onChange={(e) => setForm({ ...form, unitPriceForeign: e.target.value })} placeholder="0.42" /></Field>
-            <Field label="為替レート(1外貨=何円)">
-              <input type="number" step="0.01" className="fm-input" value={form.currency === 'JPY' ? 1 : form.exchangeRate} disabled={form.currency === 'JPY'} onChange={(e) => setForm({ ...form, exchangeRate: e.target.value })} placeholder="150" />
-            </Field>
-            <Field label="円換算単価(自動計算)">
-              <div className="fm-mono" style={{ padding: '7px 10px', color: C.teal, fontSize: 13 }}>
-                {(Number(form.unitPriceForeign || 0) * (form.currency === 'JPY' ? 1 : Number(form.exchangeRate || 1))).toFixed(2)} 円
-              </div>
-            </Field>
           </div>
           {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -1521,20 +1520,20 @@ function InventoryTab({ data, addLot, updateLot, removeLot, isEditor }) {
           </div>
         </Panel>
       ) : (
-        <LockedNotice text="原反ロットの入力にはログインが必要です。" />
+        <LockedNotice text="資材ロットの入力にはログインが必要です。" />
       )}
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>原反在庫一覧</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>資材在庫一覧</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 680 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['ロット番号', '原反名', '幅(mm)', '残量', '仕入通貨/為替', '円換算単価', '入荷日', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+              {['ロット番号', '資材名', '残量', '単価(円)', '入荷日', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
             {data.lots.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 14, color: C.textFaint }}>原反ロットがありません。</td></tr>
+              <tr><td colSpan={6} style={{ padding: 14, color: C.textFaint }}>資材ロットがありません。</td></tr>
             )}
             {data.lots.map((l) => {
               const ratio = pct(l.remainingLength, l.initialLength);
@@ -1544,22 +1543,85 @@ function InventoryTab({ data, addLot, updateLot, removeLot, isEditor }) {
                 <tr key={l.id} style={{ borderBottom: `1px solid ${C.border}`, background: l.id === editingId ? C.tealDim + '55' : 'transparent' }}>
                   <td className="fm-mono" style={{ padding: '8px' }}>{l.lotNo}</td>
                   <td style={{ padding: '8px' }}>{l.materialName}</td>
-                  <td className="fm-mono" style={{ padding: '8px' }}>{l.widthMm || '—'}</td>
                   <td style={{ padding: '8px', minWidth: 200 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ flex: 1 }}><ProgressBar ratio={ratio} color={low ? C.red : C.teal} /></div>
                       <span className="fm-mono" style={{ fontSize: 11, whiteSpace: 'nowrap', color: low ? C.red : C.textDim }}>{fmt(l.remainingLength)}/{fmt(l.initialLength)}{unitLabel(l.unit)}</span>
                     </div>
                   </td>
-                  <td className="fm-mono" style={{ padding: '8px', fontSize: 12, color: C.textDim }}>
-                    {l.currency || 'JPY'}{l.currency && l.currency !== 'JPY' ? ` @${fmt(l.exchangeRate)}円` : ''}
-                  </td>
-                  <td className="fm-mono" style={{ padding: '8px', color: C.amber }}>{unitCost.toFixed(2)}円/{unitLabel(l.unit)}</td>
+                  <td className="fm-mono" style={{ padding: '8px', color: C.amber }}>{unitCost.toFixed(2)}円</td>
                   <td className="fm-mono" style={{ padding: '8px' }}>{l.receivedDate}</td>
                   <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
                     {isEditor && <IconBtn onClick={() => startEdit(l)} title="編集" icon={Pencil} />}
                     {isEditor && <IconBtn onClick={() => removeLot(l.id)} title="削除" danger />}
                   </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Panel>
+
+      {isEditor ? (
+        <Panel style={{ padding: 16 }}>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>入出庫を記録</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>生産計画とは関係なく、日々の資材の増減(仕入れ・使用・廃棄・棚卸調整など)だけを記録できます。</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <Field label="資材(ロット)">
+              <select className="fm-input" value={txForm.lotId} onChange={(e) => setTxForm({ ...txForm, lotId: e.target.value })}>
+                {data.lots.length === 0 && <option value="">先に資材ロットを登録してください</option>}
+                {data.lots.map((l) => <option key={l.id} value={l.id}>{l.lotNo} ({l.materialName})</option>)}
+              </select>
+            </Field>
+            <Field label="日付"><input type="date" className="fm-input" value={txForm.date} onChange={(e) => setTxForm({ ...txForm, date: e.target.value })} /></Field>
+            <Field label="種別">
+              <select className="fm-input" value={txForm.type} onChange={(e) => setTxForm({ ...txForm, type: e.target.value })}>
+                <option value="入庫">入庫(増える)</option>
+                <option value="出庫">出庫(減る)</option>
+              </select>
+            </Field>
+            <Field label="数量"><input type="number" className="fm-input" value={txForm.qty} onChange={(e) => setTxForm({ ...txForm, qty: e.target.value })} placeholder="50" /></Field>
+            <Field label="メモ(任意)"><input className="fm-input" value={txForm.note} onChange={(e) => setTxForm({ ...txForm, note: e.target.value })} placeholder="例: 追加仕入れ / 廃棄 / 棚卸調整" /></Field>
+          </div>
+          {txErr && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{txErr}</div>}
+          <PrimaryButton
+            onClick={() => {
+              if (!txForm.lotId || !txForm.date || !txForm.qty) {
+                setTxErr('資材・日付・数量は必須です。');
+                return;
+              }
+              setTxErr('');
+              addMaterialTransaction({ ...txForm, qty: Number(txForm.qty) });
+              setTxForm({ ...txForm, qty: '', note: '' });
+            }}
+          ><Plus size={14} /> 記録する</PrimaryButton>
+        </Panel>
+      ) : (
+        <LockedNotice text="入出庫の記録にはログインが必要です。" />
+      )}
+
+      <Panel style={{ padding: 16, overflowX: 'auto' }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>入出庫履歴</div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 600 }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
+              {['日付', '資材', '種別', '数量', 'メモ', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {data.materialTransactions.length === 0 && (
+              <tr><td colSpan={6} style={{ padding: 14, color: C.textFaint }}>まだ入出庫の記録がありません。</td></tr>
+            )}
+            {[...data.materialTransactions].sort((a, b) => (a.date < b.date ? 1 : -1)).map((tx) => {
+              const lot = data.lots.find((l) => l.id === tx.lotId);
+              return (
+                <tr key={tx.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td className="fm-mono" style={{ padding: '8px' }}>{tx.date}</td>
+                  <td style={{ padding: '8px' }}>{lot ? `${lot.lotNo} (${lot.materialName})` : '(削除済み)'}</td>
+                  <td style={{ padding: '8px' }}><Badge tone={tx.type === '入庫' ? 'teal' : 'amber'}>{tx.type}</Badge></td>
+                  <td className="fm-mono" style={{ padding: '8px', color: tx.type === '入庫' ? C.teal : C.amber }}>{tx.type === '入庫' ? '+' : '-'}{fmt(tx.qty)}{lot ? unitLabel(lot.unit) : ''}</td>
+                  <td style={{ padding: '8px', color: C.textDim, fontSize: 12 }}>{tx.note || '—'}</td>
+                  <td style={{ padding: '8px' }}>{isEditor && <IconBtn onClick={() => removeMaterialTransaction(tx.id)} title="削除" danger />}</td>
                 </tr>
               );
             })}
@@ -1597,7 +1659,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
     return ord && ord.lotId ? lotById(ord.lotId) : null;
   }, [form.orderId, orderById, lotById]);
 
-  // 原反使用量の自動計算(担当者が直接編集したら自動計算を止める)
+  // 資材使用量の自動計算(担当者が直接編集したら自動計算を止める)
   useEffect(() => {
     if (!materialAuto) return;
     if (linkedProduct && linkedProduct.materialPerUnit > 0 && form.machineUpQty !== '') {
@@ -1699,16 +1761,29 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                 {DEFECT_CAUSES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
-            <Field label={materialAuto && linkedProduct?.materialPerUnit > 0 ? '原反使用量(自動計算)' : '原反使用量(手動)'}>
-              <input
-                type="number"
-                className="fm-input"
-                value={form.materialUsedLength}
-                onChange={(e) => { setMaterialAuto(false); setForm({ ...form, materialUsedLength: e.target.value }); }}
-                placeholder="30"
-              />
+            <Field label={materialAuto && linkedProduct?.materialPerUnit > 0 ? '資材使用量(自動計算)' : '資材使用量(手動)'}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  type="number"
+                  className="fm-input"
+                  value={form.materialUsedLength}
+                  onChange={(e) => { setMaterialAuto(false); setForm({ ...form, materialUsedLength: e.target.value }); }}
+                  placeholder="30"
+                />
+                {linkedLot && unitLabel(linkedLot.unit) === '本' && (
+                  <button
+                    type="button"
+                    onClick={() => { setMaterialAuto(false); setForm((f) => ({ ...f, materialUsedLength: String((Number(f.materialUsedLength) || 0) + 2) })); }}
+                    className="fm-btn"
+                    style={{ background: C.panelAlt2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, padding: '0 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                  >+2本</button>
+                )}
+              </div>
             </Field>
           </div>
+          {linkedLot && unitLabel(linkedLot.unit) === '本' && (
+            <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 8 }}>この資材は2本一組で機械にセットする運用のため、通常は2の倍数(2本・4本…)で記録します。</div>
+          )}
           {linkedProduct?.materialPerUnit > 0 && !materialAuto && (
             <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 8 }}>
               手動入力中です。 <button type="button" onClick={() => setMaterialAuto(true)} className="fm-btn" style={{ background: 'none', border: 'none', color: C.teal, cursor: 'pointer', padding: 0, textDecoration: 'underline', fontSize: 11 }}>自動計算に戻す</button>
@@ -1716,7 +1791,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
           )}
           {materialInsufficient && (
             <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>
-              ⚠ この計画の原反ロット(残量 {fmt(linkedLot.remainingLength)}{unitLabel(linkedLot.unit)})が不足する可能性があります。
+              ⚠ この計画の資材ロット(残量 {fmt(linkedLot.remainingLength)}{unitLabel(linkedLot.unit)})が不足する可能性があります。
             </div>
           )}
           {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}

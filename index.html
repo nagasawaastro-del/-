@@ -1448,6 +1448,15 @@ function InventoryTab({ data, addLot, updateLot, removeLot, addMaterialTransacti
   const [txForm, setTxForm] = useState(blankTxForm);
   const [txErr, setTxErr] = useState('');
 
+  // 資材一覧が変わった時、選択中のロットが存在しなくなっていたら先頭のロットに補正する
+  useEffect(() => {
+    if (data.lots.length === 0) return;
+    if (!data.lots.some((l) => l.id === txForm.lotId)) {
+      setTxForm((f) => ({ ...f, lotId: data.lots[0].id }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.lots]);
+
   const materialTypeOptions = useMemo(
     () => [...new Set(data.products.map((p) => p.materialType).filter(Boolean))],
     [data.products],

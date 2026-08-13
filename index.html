@@ -688,6 +688,16 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
   }, {});
   const rawMaterialSummary = Object.entries(rawMaterialByUnit).map(([u, v]) => `${fmt(v)}${u}`).join(' / ') || '0';
 
+  // 原材料名ごとの内訳(同じ原反名のロットをまとめて集計)
+  const rawMaterialByName = Object.values(data.lots.reduce((map, l) => {
+    const key = l.materialName || '(名称未設定)';
+    if (!map[key]) map[key] = { name: key, remaining: 0, initial: 0, unit: unitLabel(l.unit), lotCount: 0 };
+    map[key].remaining += num(l.remainingLength);
+    map[key].initial += num(l.initialLength);
+    map[key].lotCount += 1;
+    return map;
+  }, {}));
+
   // 商品ごとの在庫内訳(原反・仕掛品・完成品)
   const productStockRows = data.products.map((p) => {
     const linkedOrders = data.orders.filter((o) => o.productId === p.id);
@@ -844,6 +854,25 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
           <StatCard icon={Activity} label="仕掛品在庫(機械上がり〜たたみ前)" value={fmt(wipStock)} unit="枚" tone="amber" />
           <StatCard icon={CheckCircle2} label="完成品在庫(全商品合計)" value={fmt(finishedStockTotal)} unit="枚" tone="green" />
         </div>
+        {rawMaterialByName.length > 0 && (
+          <>
+            <div className="fm-display" style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.textDim }}>原反 残量(原材料別)</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+              {rawMaterialByName.map((m) => {
+                const ratio = pct(m.remaining, m.initial);
+                const low = ratio < 20;
+                return (
+                  <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, background: C.panelAlt, borderRadius: 6, padding: '6px 10px' }}>
+                    <span style={{ minWidth: 160 }}>{m.name}</span>
+                    <span style={{ fontSize: 11, color: C.textFaint, whiteSpace: 'nowrap' }}>{m.lotCount}ロット</span>
+                    <div style={{ flex: 1, maxWidth: 220 }}><ProgressBar ratio={ratio} color={low ? C.red : C.teal} /></div>
+                    <span className="fm-mono" style={{ marginLeft: 'auto', color: low ? C.red : C.textDim, whiteSpace: 'nowrap' }}>{fmt(m.remaining)} / {fmt(m.initial)} {m.unit}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
         {data.products.length > 0 && (
           <>
             <div className="fm-display" style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.textDim }}>在庫状況(商品別)</div>

@@ -485,6 +485,21 @@ function App() {
   const updateProduct = (id, patch) => setData((d) => ({ ...d, products: d.products.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   const removeProduct = (id) => setData((d) => ({ ...d, products: d.products.filter((p) => p.id !== id) }));
 
+  // バラ品からセット品を組み立てる(バラの完成品在庫を減らし、セット品の完成品在庫を増やす)
+  const packSet = (setProductId, qty) => setData((d) => {
+    const setProduct = d.products.find((p) => p.id === setProductId);
+    if (!setProduct || !setProduct.isSet || !setProduct.setSourceProductId) return d;
+    const baseProduct = d.products.find((p) => p.id === setProduct.setSourceProductId);
+    if (!baseProduct) return d;
+    const required = num(setProduct.piecesPerSet) * num(qty);
+    const products = d.products.map((p) => {
+      if (p.id === baseProduct.id) return { ...p, finishedStock: Math.max(0, num(p.finishedStock) - required) };
+      if (p.id === setProduct.id) return { ...p, finishedStock: num(p.finishedStock) + num(qty) };
+      return p;
+    });
+    return { ...d, products };
+  });
+
   const addSalesOrder = (so) => setData((d) => ({ ...d, salesOrders: [...d.salesOrders, { id: uid('SO'), ...so }] }));
   const updateSalesOrder = (id, patch) => setData((d) => ({ ...d, salesOrders: d.salesOrders.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
   const removeSalesOrder = (id) => setData((d) => ({ ...d, salesOrders: d.salesOrders.filter((s) => s.id !== id) }));
@@ -647,7 +662,7 @@ function App() {
         <DashboardTab data={data} lineById={lineById} orderById={orderById} lotById={lotById} orderStats={orderStats} salesOrderById={salesOrderById} salesOrderStats={salesOrderStats} />
       )}
       {tab === 'products' && (
-        <ProductTab data={data} addProduct={addProduct} updateProduct={updateProduct} removeProduct={removeProduct} isEditor={isEditor} />
+        <ProductTab data={data} addProduct={addProduct} updateProduct={updateProduct} removeProduct={removeProduct} packSet={packSet} isEditor={isEditor} />
       )}
       {tab === 'salesorders' && (
         <SalesOrderTab data={data} addSalesOrder={addSalesOrder} updateSalesOrder={updateSalesOrder} removeSalesOrder={removeSalesOrder} salesOrderStats={salesOrderStats} productById={productById} isEditor={isEditor} />
@@ -794,53 +809,6 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
         )}
       </Panel>
 
-      {/* アンドン盤(ライン状況) */}
-      <Panel style={{ padding: 16 }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>ライン状況ボード</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {data.lines.map((line) => {
-            const recs = todays.filter((r) => r.lineId === line.id);
-            const t = recs.reduce((acc, r) => ({
-              machineUp: acc.machineUp + num(r.machineUpQty),
-              inspected: acc.inspected + num(r.inspectedQty),
-              folded: acc.folded + num(r.foldedQty),
-              defect: acc.defect + num(r.defectQty),
-            }), { machineUp: 0, inspected: 0, folded: 0, defect: 0 });
-            const running = recs.length > 0;
-            const dRate = t.machineUp > 0 ? (t.defect / t.machineUp) * 100 : 0;
-            const statusColor = !running ? C.textFaint : dRate > 5 ? C.red : C.teal;
-            const orderIds = [...new Set(recs.map((r) => r.orderId))];
-            return (
-              <div key={line.id} style={{
-                display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
-                background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px',
-              }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 110 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 999, background: statusColor }} />
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{line.name}</span>
-                </div>
-                <Badge tone={running ? 'teal' : 'dim'}>{running ? '稼働中' : '本日実績なし'}</Badge>
-                <div className="fm-mono" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.textDim, flexWrap: 'wrap' }}>
-                  <span style={{ color: C.text }}>{fmt(t.machineUp)}</span><span style={{ fontSize: 10 }}>機械上がり</span>
-                  <ChevronRight size={12} />
-                  <span style={{ color: C.amber }}>{fmt(Math.max(0, t.machineUp - t.inspected))}</span><span style={{ fontSize: 10 }}>検品待ち</span>
-                  <ChevronRight size={12} />
-                  <span style={{ color: C.amber }}>{fmt(Math.max(0, t.inspected - t.folded))}</span><span style={{ fontSize: 10 }}>たたみ待ち</span>
-                  <ChevronRight size={12} />
-                  <span style={{ color: C.green }}>{fmt(t.folded)}</span><span style={{ fontSize: 10 }}>完成</span>
-                </div>
-                {orderIds.length > 0 && (
-                  <span style={{ fontSize: 11, color: C.textFaint, marginLeft: 'auto' }}>
-                    {orderIds.map((oid) => orderById(oid)?.productName).filter(Boolean).join(' / ')}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </Panel>
-
       {/* 資材アラート */}
       <Panel style={{ padding: 16 }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 10 }}>資材 残量アラート(残20%未満)</div>
@@ -866,11 +834,6 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
       <Panel style={{ padding: 16 }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>在庫状況(資材・仕掛品・完成品)</div>
         <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>資材(仕入れた原材料)・仕掛品(機械上がり済みでまだ完成していないもの)・完成品(たたみ済みで出荷待ちのもの)の3段階で在庫を確認できます。</div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-          <StatCard icon={Package} label="資材 残量合計(単位別)" value={rawMaterialSummary} unit="" tone="teal" />
-          <StatCard icon={Activity} label="仕掛品在庫(機械上がり〜たたみ前)" value={fmt(wipStock)} unit="枚" tone="amber" />
-          <StatCard icon={CheckCircle2} label="完成品在庫(全商品合計)" value={fmt(finishedStockTotal)} unit="枚" tone="green" />
-        </div>
         {rawMaterialByName.length > 0 && (
           <>
             <div className="fm-display" style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.textDim }}>資材 残量(原材料別)</div>
@@ -936,14 +899,19 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
 /* ------------------------------------------------------------------ */
 /* 商品マスタタブ                                                       */
 /* ------------------------------------------------------------------ */
-function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }) {
+function ProductTab({ data, addProduct, updateProduct, removeProduct, packSet, isEditor }) {
   const blankForm = {
     productCode: '', productName: '', spec: '', defaultCustomer: '', materialType: '',
     materialPerUnit: '', speedPerHour: '', minLotQty: '', storageLocation: '', finishedStock: '',
+    isSet: false, setSourceProductId: '', piecesPerSet: '',
   };
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState(null);
   const [err, setErr] = useState('');
+
+  const [packProductId, setPackProductId] = useState('');
+  const [packQty, setPackQty] = useState('');
+  const [packErr, setPackErr] = useState('');
 
   const startEdit = (p) => {
     setEditingId(p.id);
@@ -953,6 +921,7 @@ function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }
       materialPerUnit: String(p.materialPerUnit || ''),
       speedPerHour: String(p.speedPerHour || ''), minLotQty: String(p.minLotQty || ''),
       storageLocation: p.storageLocation || '', finishedStock: String(p.finishedStock ?? '0'),
+      isSet: !!p.isSet, setSourceProductId: p.setSourceProductId || '', piecesPerSet: String(p.piecesPerSet || ''),
     });
   };
   const cancelEdit = () => { setEditingId(null); setForm(blankForm); setErr(''); };
@@ -962,6 +931,10 @@ function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }
       setErr('商品コード・商品名は必須です。');
       return;
     }
+    if (form.isSet && (!form.setSourceProductId || !form.piecesPerSet)) {
+      setErr('セット品の場合、元になるバラ品と1セットあたりの数量が必須です。');
+      return;
+    }
     setErr('');
     const payload = {
       ...form,
@@ -969,6 +942,9 @@ function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }
       speedPerHour: Number(form.speedPerHour) || 0,
       minLotQty: Number(form.minLotQty) || 0,
       finishedStock: Number(form.finishedStock) || 0,
+      isSet: !!form.isSet,
+      piecesPerSet: form.isSet ? Number(form.piecesPerSet) || 0 : 0,
+      setSourceProductId: form.isSet ? form.setSourceProductId : '',
     };
     if (editingId) {
       updateProduct(editingId, payload);
@@ -978,6 +954,12 @@ function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }
     }
     setForm(blankForm);
   };
+
+  const setProducts = data.products.filter((p) => p.isSet && p.setSourceProductId);
+  const packProduct = data.products.find((p) => p.id === packProductId);
+  const packBase = packProduct ? data.products.find((p) => p.id === packProduct.setSourceProductId) : null;
+  const requiredForPack = packProduct && packQty ? num(packProduct.piecesPerSet) * Number(packQty) : 0;
+  const packInsufficient = packBase && requiredForPack > num(packBase.finishedStock);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -997,6 +979,34 @@ function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }
             <Field label="保管場所"><input className="fm-input" value={form.storageLocation} onChange={(e) => setForm({ ...form, storageLocation: e.target.value })} placeholder="倉庫A-1" /></Field>
             <Field label="完成品在庫(枚)"><input type="number" className="fm-input" value={form.finishedStock} onChange={(e) => setForm({ ...form, finishedStock: e.target.value })} placeholder="0" /></Field>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, paddingTop: 10, borderTop: `1px dashed ${C.border}` }}>
+            <input
+              type="checkbox"
+              id="isSetCheckbox"
+              checked={form.isSet}
+              onChange={(e) => setForm({ ...form, isSet: e.target.checked })}
+              style={{ width: 16, height: 16 }}
+            />
+            <label htmlFor="isSetCheckbox" style={{ fontSize: 13, color: C.text, cursor: 'pointer' }}>
+              この商品は「セット品」(バラ品を複数まとめたもの)として管理する
+            </label>
+          </div>
+          {form.isSet && (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+              <Field label="元になるバラ品">
+                <select className="fm-input" value={form.setSourceProductId} onChange={(e) => setForm({ ...form, setSourceProductId: e.target.value })}>
+                  <option value="">選択してください</option>
+                  {data.products.filter((p) => !p.isSet && p.id !== editingId).map((p) => <option key={p.id} value={p.id}>{p.productCode} - {p.productName}</option>)}
+                </select>
+              </Field>
+              <Field label="1セットあたりの枚数"><input type="number" className="fm-input" value={form.piecesPerSet} onChange={(e) => setForm({ ...form, piecesPerSet: e.target.value })} placeholder="10" /></Field>
+            </div>
+          )}
+          {form.isSet && (
+            <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 8 }}>
+              セット品は生産計画には直接紐づけません。バラ品の生産実績が積み上がったら、下の「セットを組む」からバラを消費してセット在庫を作ってください。
+            </div>
+          )}
           {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <PrimaryButton onClick={submit}>{editingId ? <CheckCircle2 size={14} /> : <Plus size={14} />} {editingId ? '更新を保存' : '商品を登録'}</PrimaryButton>
@@ -1007,36 +1017,84 @@ function ProductTab({ data, addProduct, updateProduct, removeProduct, isEditor }
         <LockedNotice text="商品の登録・編集にはログインが必要です。" />
       )}
 
+      {setProducts.length > 0 && (
+        isEditor ? (
+          <Panel style={{ padding: 16 }}>
+            <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>セットを組む</div>
+            <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>セット品を選んで数量を入力すると、元になるバラ品の完成品在庫を消費してセット品の完成品在庫を増やします。</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+              <Field label="セット品">
+                <select className="fm-input" value={packProductId} onChange={(e) => setPackProductId(e.target.value)}>
+                  <option value="">選択してください</option>
+                  {setProducts.map((p) => <option key={p.id} value={p.id}>{p.productCode} - {p.productName}(1セット={p.piecesPerSet}枚)</option>)}
+                </select>
+              </Field>
+              <Field label="組むセット数"><input type="number" className="fm-input" value={packQty} onChange={(e) => setPackQty(e.target.value)} placeholder="10" /></Field>
+            </div>
+            {packProduct && packBase && (
+              <div style={{ fontSize: 12, color: packInsufficient ? C.red : C.textDim, marginBottom: 8 }}>
+                必要なバラ数: {fmt(requiredForPack)}枚(バラ品「{packBase.productName}」の在庫: {fmt(packBase.finishedStock)}枚)
+                {packInsufficient && ' — バラの在庫が不足しています'}
+              </div>
+            )}
+            {packErr && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{packErr}</div>}
+            <PrimaryButton
+              onClick={() => {
+                if (!packProductId || !packQty) {
+                  setPackErr('セット品と数量を入力してください。');
+                  return;
+                }
+                if (packInsufficient) {
+                  setPackErr('バラの在庫が不足しているため、この数量は組めません。');
+                  return;
+                }
+                setPackErr('');
+                packSet(packProductId, Number(packQty));
+                setPackQty('');
+              }}
+            ><CheckCircle2 size={14} /> セットを組む</PrimaryButton>
+          </Panel>
+        ) : (
+          <LockedNotice text="セットを組むにはログインが必要です。" />
+        )
+      )}
+
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>商品一覧</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 900 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 960 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['商品コード', '商品名', '規格', '主要得意先', '使用原材料', '原単位(1枚)', '生産速度', '最低ロット', '保管場所', '完成品在庫', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+              {['商品コード', '商品名', '規格', '主要得意先', '使用原材料', '原単位(1枚)', '生産速度', '最低ロット', '保管場所', '完成品在庫', '区分', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
             {data.products.length === 0 && (
-              <tr><td colSpan={11} style={{ padding: 14, color: C.textFaint }}>商品がありません。上のフォームから登録してください。</td></tr>
+              <tr><td colSpan={12} style={{ padding: 14, color: C.textFaint }}>商品がありません。上のフォームから登録してください。</td></tr>
             )}
-            {data.products.map((p) => (
-              <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, background: p.id === editingId ? C.tealDim + '55' : 'transparent' }}>
-                <td className="fm-mono" style={{ padding: '8px' }}>{p.productCode}</td>
-                <td style={{ padding: '8px' }}>{p.productName}</td>
-                <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.spec || '—'}</td>
-                <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.defaultCustomer || '—'}</td>
-                <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.materialType || '—'}</td>
-                <td className="fm-mono" style={{ padding: '8px' }}>{p.materialPerUnit ? `${p.materialPerUnit}` : '—'}</td>
-                <td className="fm-mono" style={{ padding: '8px' }}>{p.speedPerHour ? `${fmt(p.speedPerHour)}枚/h` : '—'}</td>
-                <td className="fm-mono" style={{ padding: '8px' }}>{p.minLotQty ? `${fmt(p.minLotQty)}枚` : '—'}</td>
-                <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.storageLocation || '—'}</td>
-                <td className="fm-mono" style={{ padding: '8px' }}>{fmt(p.finishedStock)}枚</td>
-                <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
-                  {isEditor && <IconBtn onClick={() => startEdit(p)} title="編集" icon={Pencil} />}
-                  {isEditor && <IconBtn onClick={() => removeProduct(p.id)} title="削除" danger />}
-                </td>
-              </tr>
-            ))}
+            {data.products.map((p) => {
+              const base = p.isSet ? data.products.find((b) => b.id === p.setSourceProductId) : null;
+              return (
+                <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, background: p.id === editingId ? C.tealDim + '55' : 'transparent' }}>
+                  <td className="fm-mono" style={{ padding: '8px' }}>{p.productCode}</td>
+                  <td style={{ padding: '8px' }}>{p.productName}</td>
+                  <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.spec || '—'}</td>
+                  <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.defaultCustomer || '—'}</td>
+                  <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.materialType || '—'}</td>
+                  <td className="fm-mono" style={{ padding: '8px' }}>{p.materialPerUnit ? `${p.materialPerUnit}` : '—'}</td>
+                  <td className="fm-mono" style={{ padding: '8px' }}>{p.speedPerHour ? `${fmt(p.speedPerHour)}枚/h` : '—'}</td>
+                  <td className="fm-mono" style={{ padding: '8px' }}>{p.minLotQty ? `${fmt(p.minLotQty)}枚` : '—'}</td>
+                  <td style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{p.storageLocation || '—'}</td>
+                  <td className="fm-mono" style={{ padding: '8px' }}>{fmt(p.finishedStock)}枚</td>
+                  <td style={{ padding: '8px' }}>
+                    {p.isSet ? <Badge tone="amber">セット品({p.piecesPerSet}枚/{base?.productName || '?'})</Badge> : <Badge tone="dim">バラ品</Badge>}
+                  </td>
+                  <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
+                    {isEditor && <IconBtn onClick={() => startEdit(p)} title="編集" icon={Pencil} />}
+                    {isEditor && <IconBtn onClick={() => removeProduct(p.id)} title="削除" danger />}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </Panel>
@@ -1234,13 +1292,29 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
 
   const onPickSalesOrder = (soId) => {
     const so = salesOrderById(soId);
+    if (!so) {
+      setForm((f) => ({ ...f, salesOrderId: soId }));
+      return;
+    }
+    const soProduct = so.productId ? productById(so.productId) : null;
+    let targetProductId = so.productId || '';
+    let targetProductName = so.productName;
+    let targetQty = so.orderedQty;
+    if (soProduct && soProduct.isSet && soProduct.setSourceProductId) {
+      const baseProduct = productById(soProduct.setSourceProductId);
+      if (baseProduct) {
+        targetProductId = baseProduct.id;
+        targetProductName = baseProduct.productName;
+        targetQty = num(soProduct.piecesPerSet) * num(so.orderedQty);
+      }
+    }
     setForm((f) => ({
       ...f,
       salesOrderId: soId,
-      productId: so && so.productId ? so.productId : f.productId,
-      productName: so ? so.productName : f.productName,
-      targetQty: so && !f.targetQty ? String(so.orderedQty) : f.targetQty,
-      dueDate: so ? so.dueDate : f.dueDate,
+      productId: targetProductId || f.productId,
+      productName: targetProductName || f.productName,
+      targetQty: targetQty ? String(targetQty) : f.targetQty,
+      dueDate: so.dueDate || f.dueDate,
     }));
   };
 
@@ -1254,6 +1328,8 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
   };
 
   const selectedProduct = productById(form.productId);
+  const linkedSalesOrder = salesOrderById(form.salesOrderId);
+  const linkedSOProduct = linkedSalesOrder?.productId ? productById(linkedSalesOrder.productId) : null;
   const sortedLots = useMemo(() => {
     if (!selectedProduct) return data.lots;
     return [...data.lots].sort((a, b) => {
@@ -1298,7 +1374,7 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
             <Field label="商品(任意)">
               <select className="fm-input" value={form.productId} onChange={(e) => onPickProduct(e.target.value)}>
                 <option value="">選択しない</option>
-                {data.products.map((p) => <option key={p.id} value={p.id}>{p.productCode} - {p.productName}</option>)}
+                {data.products.map((p) => <option key={p.id} value={p.id}>{p.productCode} - {p.productName}{p.isSet ? '(セット品)' : ''}</option>)}
               </select>
             </Field>
             <Field label="製品名">
@@ -1332,6 +1408,17 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
           </div>
           {form.productId && (
             <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 8 }}>製品名は商品マスタから自動入力されています。変更したい場合は「選択しない」に戻してください。</div>
+          )}
+          {linkedSOProduct?.isSet && (
+            <div style={{ color: C.teal, fontSize: 12, marginBottom: 8 }}>
+              📦 紐づく受注はセット品(1セット={fmt(linkedSOProduct.piecesPerSet)}枚)です。バラ品「{productById(linkedSOProduct.setSourceProductId)?.productName || '?'}」への目標数量に自動変換しました
+              (受注{fmt(linkedSalesOrder.orderedQty)}セット × {fmt(linkedSOProduct.piecesPerSet)}枚 = {fmt(linkedSOProduct.piecesPerSet * linkedSalesOrder.orderedQty)}枚)。
+            </div>
+          )}
+          {selectedProduct?.isSet && (
+            <div style={{ color: C.amber, fontSize: 12, marginBottom: 8 }}>
+              ⚠ この商品は「セット品」です。生産計画・実績はバラの現物枚数で管理するため、通常はバラ品(元になる商品)を選んでください。セットは商品マスタの「セットを組む」から作成できます。
+            </div>
           )}
           {estimatedHours !== null && (
             <div style={{ fontSize: 12, color: C.teal, marginBottom: 8 }}>

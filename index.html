@@ -469,12 +469,17 @@ function App() {
   }, [data]);
 
   const salesOrderStats = useCallback((salesOrderId) => {
+    const so = (data?.salesOrders || []).find((s) => s.id === salesOrderId);
     const planIds = (data?.orders || []).filter((o) => o.salesOrderId === salesOrderId).map((o) => o.id);
     const recs = (data?.records || []).filter((r) => planIds.includes(r.orderId));
-    return recs.reduce((acc, r) => ({
+    const base = recs.reduce((acc, r) => ({
       machineUp: acc.machineUp + num(r.machineUpQty),
       folded: acc.folded + num(r.foldedQty),
     }), { machineUp: 0, folded: 0 });
+    const setsCompleted = so
+      ? recs.filter((r) => r.setProductId === so.productId).reduce((sum, r) => sum + num(r.setQty), 0)
+      : 0;
+    return { ...base, setsCompleted };
   }, [data]);
 
   /* --- 追加・削除アクション --- */
@@ -674,7 +679,7 @@ function App() {
       </div>
 
       {tab === 'dashboard' && (
-        <DashboardTab data={data} lineById={lineById} orderById={orderById} lotById={lotById} orderStats={orderStats} salesOrderById={salesOrderById} salesOrderStats={salesOrderStats} />
+        <DashboardTab data={data} lineById={lineById} orderById={orderById} lotById={lotById} orderStats={orderStats} salesOrderById={salesOrderById} salesOrderStats={salesOrderStats} productById={productById} />
       )}
       {tab === 'products' && (
         <ProductTab data={data} addProduct={addProduct} updateProduct={updateProduct} removeProduct={removeProduct} packSet={packSet} isEditor={isEditor} />
@@ -704,7 +709,7 @@ function App() {
 /* ------------------------------------------------------------------ */
 /* ダッシュボード                                                       */
 /* ------------------------------------------------------------------ */
-function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrderById, salesOrderStats }) {
+function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrderById, salesOrderStats, productById }) {
   const [date, setDate] = useState(todayStr());
   const todays = data.records.filter((r) => r.date === date);
 
@@ -805,15 +810,18 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {data.salesOrders.map((so) => {
               const st = salesOrderStats(so.id);
-              const ratio = pct(st.folded, so.orderedQty);
-              const done = st.folded >= so.orderedQty && so.orderedQty > 0;
+              const soProduct = so.productId ? productById(so.productId) : null;
+              const progressQty = soProduct?.isSet ? st.setsCompleted : st.folded;
+              const unitLabel2 = soProduct?.isSet ? 'セット' : '枚';
+              const ratio = pct(progressQty, so.orderedQty);
+              const done = progressQty >= so.orderedQty && so.orderedQty > 0;
               return (
                 <div key={so.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: done ? 'rgba(79,179,116,0.08)' : C.panelAlt, borderRadius: 8, padding: '8px 12px' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, minWidth: 150, display: 'flex', alignItems: 'center', gap: 6 }}>
                     {done && <CheckCircle2 size={13} color={C.green} />}{so.orderNo} <span style={{ color: C.textDim, fontWeight: 400 }}>{so.customerName}</span>
                   </span>
                   <div style={{ flex: 1, minWidth: 120, maxWidth: 260 }}><ProgressBar ratio={ratio} color={done ? C.green : C.teal} /></div>
-                  <span className="fm-mono" style={{ fontSize: 12, color: C.textDim }}>{fmt(st.folded)}/{fmt(so.orderedQty)}枚</span>
+                  <span className="fm-mono" style={{ fontSize: 12, color: C.textDim }}>{fmt(progressQty)}/{fmt(so.orderedQty)}{unitLabel2}</span>
                   <span className="fm-mono" style={{ fontSize: 11, color: C.textFaint }}>納期 {so.dueDate}</span>
                 </div>
               );
@@ -895,7 +903,9 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
                           </div>
                         )}
                       </td>
-                      <td className="fm-mono" style={{ padding: '8px', color: C.amber }}>{fmt(wip)}枚</td>
+                      <td className="fm-mono" style={{ padding: '8px', color: C.amber }}>
+                        {p.isSet ? <span style={{ color: C.textFaint, fontSize: 12 }}>—(バラ品で管理)</span> : `${fmt(wip)}枚`}
+                      </td>
                       <td className="fm-mono" style={{ padding: '8px', color: C.green }}>{fmt(p.finishedStock)}枚</td>
                     </tr>
                   ))}
@@ -1129,6 +1139,8 @@ function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder
     [data.products, data.salesOrders],
   );
 
+  const selectedProduct = productById(form.productId);
+
   const startEdit = (so) => {
     setEditingId(so.id);
     setForm({ orderNo: so.orderNo, productId: so.productId || '', customerName: so.customerName, productName: so.productName, orderedQty: String(so.orderedQty), orderDate: so.orderDate, dueDate: so.dueDate });
@@ -1163,8 +1175,10 @@ function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder
   const withStatus = data.salesOrders.map((so) => {
     const linkedPlans = data.orders.filter((o) => o.salesOrderId === so.id);
     const st = salesOrderStats(so.id);
-    const status = st.folded >= so.orderedQty && so.orderedQty > 0 ? '完了' : linkedPlans.length > 0 ? '計画中' : '未計画';
-    return { so, linkedPlans, st, status };
+    const soProduct = so.productId ? productById(so.productId) : null;
+    const progressQty = soProduct?.isSet ? st.setsCompleted : st.folded;
+    const status = progressQty >= so.orderedQty && so.orderedQty > 0 ? '完了' : linkedPlans.length > 0 ? '計画中' : '未計画';
+    return { so, linkedPlans, st, status, progressQty, soProduct };
   });
   const sorted = [...withStatus].sort((a, b) => (a.status === '完了') - (b.status === '完了'));
 
@@ -1198,14 +1212,21 @@ function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder
                 style={form.productId ? { opacity: 0.65, cursor: 'not-allowed' } : undefined}
               />
             </Field>
-            <Field label="受注数量(枚)"><input type="number" className="fm-input" value={form.orderedQty} onChange={(e) => setForm({ ...form, orderedQty: e.target.value })} placeholder="5000" /></Field>
+            <Field label={selectedProduct?.isSet ? '受注数量(セット)' : '受注数量(枚)'}>
+              <input type="number" className="fm-input" value={form.orderedQty} onChange={(e) => setForm({ ...form, orderedQty: e.target.value })} placeholder={selectedProduct?.isSet ? '20' : '5000'} />
+            </Field>
             <Field label="受注日"><input type="date" className="fm-input" value={form.orderDate} onChange={(e) => setForm({ ...form, orderDate: e.target.value })} /></Field>
             <Field label="納期"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
           </div>
           {form.productId && (
             <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 8 }}>製品名は商品マスタから自動入力されています。変更したい場合は「選択しない(自由入力)」に戻してください。</div>
           )}
-          {form.productId && Number(form.orderedQty) > 0 && productById(form.productId)?.minLotQty > Number(form.orderedQty) && (
+          {selectedProduct?.isSet && (
+            <div style={{ fontSize: 11, color: C.teal, marginBottom: 8 }}>
+              📦 この商品はセット品(1セット={fmt(selectedProduct.piecesPerSet)}枚)です。受注数量は「セットの数」で入力してください。生産計画にはバラ換算した枚数が自動で入ります。
+            </div>
+          )}
+          {form.productId && Number(form.orderedQty) > 0 && !selectedProduct?.isSet && productById(form.productId)?.minLotQty > Number(form.orderedQty) && (
             <div style={{ color: C.amber, fontSize: 12, marginBottom: 8 }}>⚠ この商品の最低ロット({fmt(productById(form.productId).minLotQty)}枚)を下回っています。</div>
           )}
           {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{err}</div>}
@@ -1230,19 +1251,20 @@ function SalesOrderTab({ data, addSalesOrder, updateSalesOrder, removeSalesOrder
             {sorted.length === 0 && (
               <tr><td colSpan={8} style={{ padding: 14, color: C.textFaint }}>受注がありません。上のフォームから追加してください。</td></tr>
             )}
-            {sorted.map(({ so, linkedPlans, st, status }) => {
-              const ratio = pct(st.folded, so.orderedQty);
+            {sorted.map(({ so, linkedPlans, st, status, progressQty, soProduct }) => {
+              const ratio = pct(progressQty, so.orderedQty);
+              const unitLabel2 = soProduct?.isSet ? 'セット' : '枚';
               const tone = status === '完了' ? 'green' : status === '計画中' ? 'teal' : 'dim';
               return (
                 <tr key={so.id} style={{ borderBottom: `1px solid ${C.border}`, background: so.id === editingId ? C.tealDim + '55' : status === '完了' ? C.greenDim + '33' : 'transparent' }}>
                   <td className="fm-mono" style={{ padding: '8px' }}>{so.orderNo}</td>
                   <td style={{ padding: '8px' }}>{so.customerName}</td>
                   <td style={{ padding: '8px' }}>{so.productName}</td>
-                  <td className="fm-mono" style={{ padding: '8px' }}>{fmt(so.orderedQty)}</td>
+                  <td className="fm-mono" style={{ padding: '8px' }}>{fmt(so.orderedQty)}{unitLabel2}</td>
                   <td style={{ padding: '8px', minWidth: 170 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ flex: 1 }}><ProgressBar ratio={ratio} color={status === '完了' ? C.green : C.teal} /></div>
-                      <span className="fm-mono" style={{ fontSize: 11, color: C.textDim, whiteSpace: 'nowrap' }}>{fmt(st.folded)}/{fmt(so.orderedQty)}</span>
+                      <span className="fm-mono" style={{ fontSize: 11, color: C.textDim, whiteSpace: 'nowrap' }}>{fmt(progressQty)}/{fmt(so.orderedQty)}{unitLabel2}</span>
                     </div>
                     {linkedPlans.length === 0 && <div style={{ fontSize: 11, color: C.amber, marginTop: 4 }}>⚠ 生産計画が未作成です</div>}
                   </td>

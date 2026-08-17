@@ -528,6 +528,17 @@ function App() {
   const updateOrder = (id, patch) => setData((d) => ({ ...d, orders: d.orders.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
   const removeOrder = (id) => setData((d) => ({ ...d, orders: d.orders.filter((o) => o.id !== id), records: d.records.filter((r) => r.orderId !== id) }));
 
+  // 実績が完成品在庫を加算する対象(セット単位入力ならセット品、それ以外は計画の商品自身)を判定
+  const creditTarget = (rec, ord) => {
+    if (rec.setProductId && rec.setQty) {
+      return { productId: rec.setProductId, qty: num(rec.setQty) };
+    }
+    if (ord && ord.productId && rec.foldedQty) {
+      return { productId: ord.productId, qty: num(rec.foldedQty) };
+    }
+    return null;
+  };
+
   const addRecord = (rec) => setData((d) => {
     let lots = d.lots;
     let products = d.products;
@@ -535,8 +546,9 @@ function App() {
     if (ord && ord.lotId && rec.materialUsedLength) {
       lots = d.lots.map((l) => (l.id === ord.lotId ? { ...l, remainingLength: Math.max(0, num(l.remainingLength) - num(rec.materialUsedLength)) } : l));
     }
-    if (ord && ord.productId && rec.foldedQty) {
-      products = d.products.map((p) => (p.id === ord.productId ? { ...p, finishedStock: num(p.finishedStock) + num(rec.foldedQty) } : p));
+    const credit = creditTarget(rec, ord);
+    if (credit) {
+      products = d.products.map((p) => (p.id === credit.productId ? { ...p, finishedStock: num(p.finishedStock) + credit.qty } : p));
     }
     return { ...d, lots, products, records: [...d.records, { id: uid('R'), ...rec }] };
   });
@@ -554,11 +566,13 @@ function App() {
     if (newOrd && newOrd.lotId && merged.materialUsedLength) {
       lots = lots.map((l) => (l.id === newOrd.lotId ? { ...l, remainingLength: Math.max(0, num(l.remainingLength) - num(merged.materialUsedLength)) } : l));
     }
-    if (oldOrd && oldOrd.productId && old.foldedQty) {
-      products = products.map((p) => (p.id === oldOrd.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - num(old.foldedQty)) } : p));
+    const oldCredit = creditTarget(old, oldOrd);
+    if (oldCredit) {
+      products = products.map((p) => (p.id === oldCredit.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - oldCredit.qty) } : p));
     }
-    if (newOrd && newOrd.productId && merged.foldedQty) {
-      products = products.map((p) => (p.id === newOrd.productId ? { ...p, finishedStock: num(p.finishedStock) + num(merged.foldedQty) } : p));
+    const newCredit = creditTarget(merged, newOrd);
+    if (newCredit) {
+      products = products.map((p) => (p.id === newCredit.productId ? { ...p, finishedStock: num(p.finishedStock) + newCredit.qty } : p));
     }
     return { ...d, lots, products, records: d.records.map((r) => (r.id === id ? merged : r)) };
   });
@@ -571,8 +585,9 @@ function App() {
     if (ord && ord.lotId && old.materialUsedLength) {
       lots = lots.map((l) => (l.id === ord.lotId ? { ...l, remainingLength: num(l.remainingLength) + num(old.materialUsedLength) } : l));
     }
-    if (ord && ord.productId && old.foldedQty) {
-      products = products.map((p) => (p.id === ord.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - num(old.foldedQty)) } : p));
+    const credit = creditTarget(old, ord);
+    if (credit) {
+      products = products.map((p) => (p.id === credit.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - credit.qty) } : p));
     }
     return { ...d, lots, products, records: d.records.filter((r) => r.id !== id) };
   });
@@ -700,8 +715,7 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
     defect: acc.defect + num(r.defectQty),
   }), { machineUp: 0, inspected: 0, folded: 0, defect: 0 });
 
-  const waitInspect = totals.machineUp - totals.inspected;
-  const waitFold = totals.inspected - totals.folded;
+  const waitCombined = totals.machineUp - totals.folded;
   const defectRate = totals.machineUp > 0 ? (totals.defect / totals.machineUp) * 100 : 0;
   const lowStockLots = data.lots.filter((l) => num(l.initialLength) > 0 && num(l.remainingLength) / num(l.initialLength) < 0.2);
   const activeLines = new Set(todays.map((r) => r.lineId)).size;
@@ -752,8 +766,7 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <StatCard icon={Factory} label="稼働ライン数" value={activeLines} unit={`/ ${data.lines.length}`} tone="teal" />
         <StatCard icon={Activity} label="本日 機械上がり" value={fmt(totals.machineUp)} unit="枚" tone="teal" />
-        <StatCard icon={ClipboardList} label="検品待ち" value={fmt(Math.max(0, waitInspect))} unit="枚" tone="amber" />
-        <StatCard icon={ClipboardList} label="たたみ待ち" value={fmt(Math.max(0, waitFold))} unit="枚" tone="amber" />
+        <StatCard icon={ClipboardList} label="検品・たたみ待ち" value={fmt(Math.max(0, waitCombined))} unit="枚" tone="amber" />
         <StatCard icon={CheckCircle2} label="たたみ済み(完成)" value={fmt(totals.folded)} unit="枚" tone="green" />
         <StatCard icon={AlertTriangle} label="不良率" value={defectRate.toFixed(1)} unit="%" tone={defectRate > 5 ? 'red' : 'teal'} />
         <StatCard icon={CheckCircle2} label="完了済み計画" value={completedPlans.length} unit={`/ ${data.orders.length}件`} tone="green" />
@@ -1733,7 +1746,8 @@ function InventoryTab({ data, addLot, updateLot, removeLot, addMaterialTransacti
 /* ------------------------------------------------------------------ */
 function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, orderById, orderStats, productById, lotById, isEditor }) {
   const blankForm = {
-    date: todayStr(), orderId: data.orders[0]?.id || '', worker: '', machineUpQty: '', inspectedQty: '', foldedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '',
+    date: todayStr(), orderId: data.orders[0]?.id || '', worker: '', machineUpQty: '', completedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '',
+    setMode: false, setProductId: '', setQty: '',
   };
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState(null);
@@ -1755,6 +1769,25 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
     return ord && ord.lotId ? lotById(ord.lotId) : null;
   }, [form.orderId, orderById, lotById]);
 
+  // この計画の商品(バラ品)を元にしたセット品があれば、セット単位入力を選べるようにする
+  const availableSetProducts = useMemo(() => {
+    if (!linkedProduct) return [];
+    return data.products.filter((p) => p.isSet && p.setSourceProductId === linkedProduct.id);
+  }, [data.products, linkedProduct]);
+
+  // セット単位入力に切り替えた時、未選択なら先頭のセット品を自動選択する
+  useEffect(() => {
+    if (form.setMode && !form.setProductId && availableSetProducts.length > 0) {
+      setForm((f) => ({ ...f, setProductId: availableSetProducts[0].id }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.setMode, availableSetProducts]);
+
+  const selectedSetProduct = availableSetProducts.find((p) => p.id === form.setProductId) || null;
+  const baraEquivalent = form.setMode && selectedSetProduct && form.setQty !== ''
+    ? num(selectedSetProduct.piecesPerSet) * Number(form.setQty)
+    : null;
+
   // 資材使用量の自動計算(担当者が直接編集したら自動計算を止める)
   useEffect(() => {
     if (!materialAuto) return;
@@ -1770,11 +1803,16 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
   const startEdit = (r) => {
     setEditingId(r.id);
     setMaterialAuto(false);
+    const isSetRec = !!(r.setProductId && r.setQty);
     setForm({
       date: r.date, orderId: r.orderId, worker: r.worker || '',
-      machineUpQty: String(r.machineUpQty ?? ''), inspectedQty: String(r.inspectedQty ?? ''),
-      foldedQty: String(r.foldedQty ?? ''), defectQty: String(r.defectQty ?? ''),
+      machineUpQty: String(r.machineUpQty ?? ''),
+      completedQty: isSetRec ? '' : String(r.foldedQty ?? ''),
+      defectQty: String(r.defectQty ?? ''),
       defectCause: r.defectCause || '', defectNote: r.defectNote || '', materialUsedLength: String(r.materialUsedLength ?? ''),
+      setMode: isSetRec,
+      setProductId: isSetRec ? r.setProductId : '',
+      setQty: isSetRec ? String(r.setQty) : '',
     });
   };
   const cancelEdit = () => { setEditingId(null); setForm(blankForm); setMaterialAuto(true); setErr(''); };
@@ -1784,20 +1822,29 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
       setErr('日付・担当者・計画・機械上がり数は必須です。');
       return;
     }
+    if (form.setMode && (!form.setProductId || !form.setQty)) {
+      setErr('セット単位入力の場合、セット品とセット数は必須です。');
+      return;
+    }
     setErr('');
     const ord = orderById(form.orderId);
+    const completedQtyValue = form.setMode
+      ? num(selectedSetProduct?.piecesPerSet) * (Number(form.setQty) || 0)
+      : (Number(form.completedQty) || 0);
     const payload = {
       date: form.date,
       orderId: form.orderId,
       lineId: ord?.lineId,
       worker: form.worker,
       machineUpQty: Number(form.machineUpQty) || 0,
-      inspectedQty: Number(form.inspectedQty) || 0,
-      foldedQty: Number(form.foldedQty) || 0,
+      inspectedQty: completedQtyValue,
+      foldedQty: completedQtyValue,
       defectQty: Number(form.defectQty) || 0,
       defectCause: Number(form.defectQty) > 0 ? form.defectCause : '',
       defectNote: form.defectNote,
       materialUsedLength: Number(form.materialUsedLength) || 0,
+      setProductId: form.setMode ? form.setProductId : '',
+      setQty: form.setMode ? (Number(form.setQty) || 0) : 0,
     };
     if (editingId) {
       updateRecord(editingId, payload);
@@ -1806,7 +1853,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
       setMaterialAuto(true);
     } else {
       addRecord(payload);
-      setForm({ ...form, worker: '', machineUpQty: '', inspectedQty: '', foldedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '' });
+      setForm({ ...form, worker: '', machineUpQty: '', completedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '', setQty: '' });
       setMaterialAuto(true);
     }
   };
@@ -1834,6 +1881,20 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
       {isEditor ? (
         <Panel style={{ padding: 16, border: editingId ? `1px solid ${C.teal}` : undefined }}>
           <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>{editingId ? '実績を編集' : '実績を入力'}</div>
+          {availableSetProducts.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <input
+                type="checkbox"
+                id="setModeCheckbox"
+                checked={form.setMode}
+                onChange={(e) => setForm({ ...form, setMode: e.target.checked, completedQty: '', setQty: '' })}
+                style={{ width: 16, height: 16 }}
+              />
+              <label htmlFor="setModeCheckbox" style={{ fontSize: 13, color: C.text, cursor: 'pointer' }}>
+                検品・たたみの完了をセット単位で入力する
+              </label>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
             <Field label="日付"><input type="date" className="fm-input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
             <Field label="生産計画">
@@ -1848,8 +1909,19 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
               </datalist>
             </Field>
             <Field label="機械上がり数(枚)"><input type="number" className="fm-input" value={form.machineUpQty} onChange={(e) => setForm({ ...form, machineUpQty: e.target.value })} placeholder="500" /></Field>
-            <Field label="検品済み数(枚)"><input type="number" className="fm-input" value={form.inspectedQty} onChange={(e) => setForm({ ...form, inspectedQty: e.target.value })} placeholder="480" /></Field>
-            <Field label="たたみ済み数(枚)"><input type="number" className="fm-input" value={form.foldedQty} onChange={(e) => setForm({ ...form, foldedQty: e.target.value })} placeholder="450" /></Field>
+            {!form.setMode && (
+              <Field label="検品・たたみ済み数(枚)"><input type="number" className="fm-input" value={form.completedQty} onChange={(e) => setForm({ ...form, completedQty: e.target.value })} placeholder="450" /></Field>
+            )}
+            {form.setMode && (
+              <>
+                <Field label="セット品">
+                  <select className="fm-input" value={form.setProductId} onChange={(e) => setForm({ ...form, setProductId: e.target.value })}>
+                    {availableSetProducts.map((p) => <option key={p.id} value={p.id}>{p.productCode} - {p.productName}(1セット={p.piecesPerSet}枚)</option>)}
+                  </select>
+                </Field>
+                <Field label="セット数"><input type="number" className="fm-input" value={form.setQty} onChange={(e) => setForm({ ...form, setQty: e.target.value })} placeholder="10" /></Field>
+              </>
+            )}
             <Field label="不良数(枚)"><input type="number" className="fm-input" value={form.defectQty} onChange={(e) => setForm({ ...form, defectQty: e.target.value })} placeholder="10" /></Field>
             <Field label="不良原因">
               <select className="fm-input" value={form.defectCause} onChange={(e) => setForm({ ...form, defectCause: e.target.value })}>
@@ -1880,6 +1952,11 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
           {linkedLot && unitLabel(linkedLot.unit) === '本' && (
             <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 8 }}>この資材は2本一組で機械にセットする運用のため、通常は2の倍数(2本・4本…)で記録します。</div>
           )}
+          {form.setMode && selectedSetProduct && form.setQty !== '' && (
+            <div style={{ fontSize: 12, color: C.teal, marginBottom: 8 }}>
+              📦 {fmt(form.setQty)}セット × {fmt(selectedSetProduct.piecesPerSet)}枚 = バラ換算{fmt(baraEquivalent)}枚として検品・たたみ実績(WIP)を記録し、完成品在庫は「{selectedSetProduct.productName}」に{fmt(form.setQty)}セット加算されます(バラ品の完成品在庫は増えません)。
+            </div>
+          )}
           {linkedProduct?.materialPerUnit > 0 && !materialAuto && (
             <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 8 }}>
               手動入力中です。 <button type="button" onClick={() => setMaterialAuto(true)} className="fm-btn" style={{ background: 'none', border: 'none', color: C.teal, cursor: 'pointer', padding: 0, textDecoration: 'underline', fontSize: 11 }}>自動計算に戻す</button>
@@ -1905,8 +1982,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>計画別 WIPサマリ</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[...data.orders].map((o) => ({ o, st: orderStats(o.id) })).sort((a, b) => (a.st.folded >= a.o.targetQty) - (b.st.folded >= b.o.targetQty)).map(({ o, st }) => {
-            const waitInspect = Math.max(0, st.machineUp - st.inspected);
-            const waitFold = Math.max(0, st.inspected - st.folded);
+            const waitCombined = Math.max(0, st.machineUp - st.folded);
             const done = o.targetQty > 0 && st.folded >= o.targetQty;
             return (
               <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: done ? 'rgba(79,179,116,0.08)' : C.panelAlt, border: `1px solid ${done ? C.greenDim : C.border}`, borderRadius: 8, padding: '10px 14px' }}>
@@ -1916,8 +1992,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                 </span>
                 <div className="fm-mono" style={{ display: 'flex', gap: 14, fontSize: 12 }}>
                   <span>機械上がり <b style={{ color: C.text }}>{fmt(st.machineUp)}</b></span>
-                  <span style={{ color: C.amber }}>検品待ち <b>{fmt(waitInspect)}</b></span>
-                  <span style={{ color: C.amber }}>たたみ待ち <b>{fmt(waitFold)}</b></span>
+                  <span style={{ color: C.amber }}>検品・たたみ待ち <b>{fmt(waitCombined)}</b></span>
                   <span style={{ color: C.green }}>完成 <b>{fmt(st.folded)}</b>/{fmt(o.targetQty)}</span>
                 </div>
                 {done && <Badge tone="green">完了</Badge>}
@@ -1959,15 +2034,15 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>実績記録一覧</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 820 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['日付', 'ライン', '計画', '担当者', '機械上がり', '検品済', 'たたみ済', '不良', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+              {['日付', 'ライン', '計画', '担当者', '機械上がり', '検品・たたみ済', '不良', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
             {sortedRecords.length === 0 && (
-              <tr><td colSpan={9} style={{ padding: 14, color: C.textFaint }}>実績記録がありません。</td></tr>
+              <tr><td colSpan={8} style={{ padding: 14, color: C.textFaint }}>実績記録がありません。</td></tr>
             )}
             {sortedRecords.map((r) => (
               <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}`, background: r.id === editingId ? C.tealDim + '55' : 'transparent' }}>
@@ -1976,8 +2051,10 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                 <td style={{ padding: '8px' }}>{orderById(r.orderId)?.planNo || '—'}</td>
                 <td style={{ padding: '8px' }}>{r.worker || '—'}</td>
                 <td className="fm-mono" style={{ padding: '8px' }}>{fmt(r.machineUpQty)}</td>
-                <td className="fm-mono" style={{ padding: '8px' }}>{fmt(r.inspectedQty)}</td>
-                <td className="fm-mono" style={{ padding: '8px' }}>{fmt(r.foldedQty)}</td>
+                <td className="fm-mono" style={{ padding: '8px' }}>
+                  {fmt(r.foldedQty)}
+                  {r.setProductId && r.setQty ? <span style={{ fontSize: 11, color: C.textFaint }}> ({fmt(r.setQty)}セット)</span> : null}
+                </td>
                 <td className="fm-mono" style={{ padding: '8px', color: r.defectQty > 0 ? C.red : C.textDim }}>{fmt(r.defectQty)}</td>
                 <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
                   {isEditor && <IconBtn onClick={() => startEdit(r)} title="編集" icon={Pencil} />}

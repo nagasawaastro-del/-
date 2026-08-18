@@ -84,6 +84,9 @@ const Coins = makeIcon('💰');
 const Lock = makeIcon('🔒');
 const Pencil = makeIcon('✏️');
 const Box = makeIcon('📐');
+const Settings = makeIcon('⚙️');
+const ArrowUp = makeIcon('↑');
+const ArrowDown = makeIcon('↓');
 
 /* ==================================================================== */
 /* セットアップ未完了時の案内画面                                          */
@@ -185,6 +188,8 @@ const planActiveOn = (o, dateStr) => dateStr >= planStart(o) && dateStr <= planE
 const planDailyTarget = (o) => num(o.targetQty) / planSpanDays(o);
 
 // 過去バージョンで保存されたデータ(新しい項目が無い場合)でも安全に読み込めるよう補完する
+const DEFAULT_TAB_ORDER = ['dashboard', 'products', 'salesorders', 'plan', 'inventory', 'production', 'calendar', 'quality'];
+
 const normalizeData = (loaded) => {
   if (!loaded || typeof loaded !== 'object') return DEFAULT_DATA;
   return {
@@ -195,6 +200,7 @@ const normalizeData = (loaded) => {
     orders: Array.isArray(loaded.orders) ? loaded.orders : [],
     records: Array.isArray(loaded.records) ? loaded.records : [],
     materialTransactions: Array.isArray(loaded.materialTransactions) ? loaded.materialTransactions : [],
+    tabOrder: Array.isArray(loaded.tabOrder) && loaded.tabOrder.length > 0 ? loaded.tabOrder : DEFAULT_TAB_ORDER,
   };
 };
 
@@ -232,6 +238,7 @@ const DEFAULT_DATA = {
     { id: 'R2', date: todayStr(), lineId: 'L2', orderId: 'O2', worker: '鈴木', machineUpQty: 600, inspectedQty: 600, foldedQty: 500, defectQty: 10, defectCause: '寸法不良', defectNote: '', materialUsedLength: 40 },
   ],
   materialTransactions: [],
+  tabOrder: DEFAULT_TAB_ORDER,
 };
 
 /* ------------------------------------------------------------------ */
@@ -529,6 +536,9 @@ function App() {
     return { ...d, lots, materialTransactions: d.materialTransactions.filter((t) => t.id !== id) };
   });
 
+  const updateTabOrder = (newOrder) => setData((d) => ({ ...d, tabOrder: newOrder }));
+  const resetTabOrder = () => setData((d) => ({ ...d, tabOrder: DEFAULT_TAB_ORDER }));
+
   const addOrder = (order) => setData((d) => ({ ...d, orders: [...d.orders, { id: uid('O'), ...order }] }));
   const updateOrder = (id, patch) => setData((d) => ({ ...d, orders: d.orders.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
   const removeOrder = (id) => setData((d) => ({ ...d, orders: d.orders.filter((o) => o.id !== id), records: d.records.filter((r) => r.orderId !== id) }));
@@ -613,9 +623,14 @@ function App() {
     { id: 'salesorders', label: '受注', icon: FileText },
     { id: 'plan', label: '生産計画', icon: ClipboardList },
     { id: 'inventory', label: '資材管理', icon: Package },
-    { id: 'production', label: '生産実績・WIP', icon: Activity },
+    { id: 'production', label: '生産実績', icon: Activity },
     { id: 'calendar', label: 'カレンダー', icon: Calendar },
     { id: 'quality', label: '品質管理', icon: AlertTriangle },
+  ];
+  const tabOrder = data.tabOrder && data.tabOrder.length > 0 ? data.tabOrder : DEFAULT_TAB_ORDER;
+  const orderedTabs = [
+    ...tabOrder.map((id) => TABS.find((t) => t.id === id)).filter(Boolean),
+    ...TABS.filter((t) => !tabOrder.includes(t.id)),
   ];
 
   return (
@@ -656,7 +671,7 @@ function App() {
 
       {/* タブ */}
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 16, overflowX: 'auto' }}>
-        {TABS.map((t) => {
+        {orderedTabs.map((t) => {
           const active = tab === t.id;
           const Icon = t.icon;
           return (
@@ -676,6 +691,20 @@ function App() {
             </button>
           );
         })}
+        <button
+          key="settings"
+          className="fm-tab"
+          onClick={() => setTab('settings')}
+          style={{
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: tab === 'settings' ? C.teal : C.textFaint, padding: '8px 12px', fontSize: 13,
+            fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+            borderBottom: tab === 'settings' ? `2px solid ${C.teal}` : '2px solid transparent',
+            whiteSpace: 'nowrap', marginLeft: 'auto',
+          }}
+        >
+          <Settings size={14} /> タブ管理
+        </button>
       </div>
 
       {tab === 'dashboard' && (
@@ -701,6 +730,9 @@ function App() {
       )}
       {tab === 'quality' && (
         <QualityTab data={data} lineById={lineById} orderById={orderById} />
+      )}
+      {tab === 'settings' && (
+        <SettingsTab TABS={TABS} tabOrder={tabOrder} updateTabOrder={updateTabOrder} resetTabOrder={resetTabOrder} isEditor={isEditor} />
       )}
     </div>
   );
@@ -1770,13 +1802,27 @@ function InventoryTab({ data, addLot, updateLot, removeLot, addMaterialTransacti
 /* ------------------------------------------------------------------ */
 function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, orderById, orderStats, productById, lotById, isEditor }) {
   const blankForm = {
-    date: todayStr(), orderId: data.orders[0]?.id || '', worker: '', machineUpQty: '', completedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '',
+    date: todayStr(), orderId: data.orders[0]?.id || '', worker: '',
+    startTime: '', endTime: '',
+    completedQty: '', defectItems: [], materialUsedLength: '',
     setMode: false, setProductId: '', setQty: '',
   };
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState(null);
   const [materialAuto, setMaterialAuto] = useState(true);
   const [err, setErr] = useState('');
+
+  const addDefectItem = () => setForm((f) => ({ ...f, defectItems: [...f.defectItems, { id: `${Date.now()}-${f.defectItems.length}`, cause: '', qty: '' }] }));
+  const updateDefectItem = (idx, key, value) => setForm((f) => ({
+    ...f,
+    defectItems: f.defectItems.map((d, i) => (i === idx ? { ...d, [key]: value } : d)),
+  }));
+  const removeDefectItem = (idx) => setForm((f) => ({ ...f, defectItems: f.defectItems.filter((_, i) => i !== idx) }));
+
+  const totalDefectQty = useMemo(
+    () => form.defectItems.reduce((sum, d) => sum + (Number(d.qty) || 0), 0),
+    [form.defectItems],
+  );
 
   const workerOptions = useMemo(
     () => [...new Set(data.records.map((r) => r.worker).filter(Boolean))],
@@ -1812,15 +1858,19 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
     ? num(selectedSetProduct.piecesPerSet) * Number(form.setQty)
     : null;
 
+  // 完成数(または セット単位ならバラ換算数) + 不良数の合計 = 実質的な生産数(資材使用量の計算に使う)
+  const completedBase = form.setMode ? (baraEquivalent || 0) : (Number(form.completedQty) || 0);
+  const derivedMachineUp = completedBase + totalDefectQty;
+
   // 資材使用量の自動計算(担当者が直接編集したら自動計算を止める)
   useEffect(() => {
     if (!materialAuto) return;
-    if (linkedProduct && linkedProduct.materialPerUnit > 0 && form.machineUpQty !== '') {
-      const calc = (Number(form.machineUpQty) || 0) * linkedProduct.materialPerUnit;
+    if (linkedProduct && linkedProduct.materialPerUnit > 0 && derivedMachineUp > 0) {
+      const calc = derivedMachineUp * linkedProduct.materialPerUnit;
       setForm((f) => ({ ...f, materialUsedLength: calc ? String(Math.round(calc * 100) / 100) : '' }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.orderId, form.machineUpQty, materialAuto, linkedProduct]);
+  }, [form.orderId, derivedMachineUp, materialAuto, linkedProduct]);
 
   const materialInsufficient = linkedLot && form.materialUsedLength !== '' && Number(form.materialUsedLength) > num(linkedLot.remainingLength);
 
@@ -1828,12 +1878,15 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
     setEditingId(r.id);
     setMaterialAuto(false);
     const isSetRec = !!(r.setProductId && r.setQty);
+    const restoredDefects = Array.isArray(r.defectItems) && r.defectItems.length > 0
+      ? r.defectItems.map((d, i) => ({ id: d.id || `${i}`, cause: d.cause || '', qty: String(d.qty ?? '') }))
+      : (num(r.defectQty) > 0 ? [{ id: 'legacy0', cause: r.defectCause || '', qty: String(r.defectQty) }] : []);
     setForm({
       date: r.date, orderId: r.orderId, worker: r.worker || '',
-      machineUpQty: String(r.machineUpQty ?? ''),
+      startTime: r.startTime || '', endTime: r.endTime || '',
       completedQty: isSetRec ? '' : String(r.foldedQty ?? ''),
-      defectQty: String(r.defectQty ?? ''),
-      defectCause: r.defectCause || '', defectNote: r.defectNote || '', materialUsedLength: String(r.materialUsedLength ?? ''),
+      defectItems: restoredDefects,
+      materialUsedLength: String(r.materialUsedLength ?? ''),
       setMode: isSetRec,
       setProductId: isSetRec ? r.setProductId : '',
       setQty: isSetRec ? String(r.setQty) : '',
@@ -1842,12 +1895,17 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
   const cancelEdit = () => { setEditingId(null); setForm(blankForm); setMaterialAuto(true); setErr(''); };
 
   const submit = () => {
-    if (!form.orderId || !form.date || !form.worker || form.machineUpQty === '') {
-      setErr('日付・担当者・計画・機械上がり数は必須です。');
+    if (!form.orderId || !form.date || !form.worker) {
+      setErr('日付・担当者・計画は必須です。');
       return;
     }
-    if (form.setMode && (!form.setProductId || !form.setQty)) {
-      setErr('セット単位入力の場合、セット品とセット数は必須です。');
+    if (form.setMode) {
+      if (!form.setProductId || !form.setQty) {
+        setErr('セット単位入力の場合、セット品とセット数は必須です。');
+        return;
+      }
+    } else if (form.completedQty === '') {
+      setErr('完成数を入力してください。');
       return;
     }
     setErr('');
@@ -1855,17 +1913,23 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
     const completedQtyValue = form.setMode
       ? num(selectedSetProduct?.piecesPerSet) * (Number(form.setQty) || 0)
       : (Number(form.completedQty) || 0);
+    const cleanDefectItems = form.defectItems
+      .filter((d) => d.cause || (Number(d.qty) || 0) > 0)
+      .map((d) => ({ cause: d.cause, qty: Number(d.qty) || 0 }));
+    const totalDefect = cleanDefectItems.reduce((sum, d) => sum + d.qty, 0);
     const payload = {
       date: form.date,
       orderId: form.orderId,
       lineId: ord?.lineId,
       worker: form.worker,
-      machineUpQty: Number(form.machineUpQty) || 0,
+      startTime: form.startTime,
+      endTime: form.endTime,
+      machineUpQty: completedQtyValue + totalDefect,
       inspectedQty: completedQtyValue,
       foldedQty: completedQtyValue,
-      defectQty: Number(form.defectQty) || 0,
-      defectCause: Number(form.defectQty) > 0 ? form.defectCause : '',
-      defectNote: form.defectNote,
+      defectQty: totalDefect,
+      defectCause: cleanDefectItems.map((d) => d.cause).filter(Boolean).join('、'),
+      defectItems: cleanDefectItems,
       materialUsedLength: Number(form.materialUsedLength) || 0,
       setProductId: form.setMode ? form.setProductId : '',
       setQty: form.setMode ? (Number(form.setQty) || 0) : 0,
@@ -1877,7 +1941,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
       setMaterialAuto(true);
     } else {
       addRecord(payload);
-      setForm({ ...form, worker: '', machineUpQty: '', completedQty: '', defectQty: '', defectCause: '', defectNote: '', materialUsedLength: '', setQty: '' });
+      setForm({ ...form, worker: '', startTime: '', endTime: '', completedQty: '', defectItems: [], materialUsedLength: '', setQty: '' });
       setMaterialAuto(true);
     }
   };
@@ -1886,8 +1950,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
     const map = {};
     data.records.forEach((r) => {
       const key = `${r.orderId}||${r.worker || '未記入'}`;
-      if (!map[key]) map[key] = { orderId: r.orderId, worker: r.worker || '未記入', machineUp: 0, folded: 0, defect: 0 };
-      map[key].machineUp += num(r.machineUpQty);
+      if (!map[key]) map[key] = { orderId: r.orderId, worker: r.worker || '未記入', folded: 0, defect: 0 };
       map[key].folded += num(r.foldedQty);
       map[key].defect += num(r.defectQty);
     });
@@ -1932,9 +1995,10 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                 {workerOptions.map((w) => <option key={w} value={w} />)}
               </datalist>
             </Field>
-            <Field label="機械上がり数(枚)"><input type="number" className="fm-input" value={form.machineUpQty} onChange={(e) => setForm({ ...form, machineUpQty: e.target.value })} placeholder="500" /></Field>
+            <Field label="開始時間"><input type="time" className="fm-input" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} /></Field>
+            <Field label="終了時間"><input type="time" className="fm-input" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} /></Field>
             {!form.setMode && (
-              <Field label="検品・たたみ済み数(枚)"><input type="number" className="fm-input" value={form.completedQty} onChange={(e) => setForm({ ...form, completedQty: e.target.value })} placeholder="450" /></Field>
+              <Field label="完成数(枚)"><input type="number" className="fm-input" value={form.completedQty} onChange={(e) => setForm({ ...form, completedQty: e.target.value })} placeholder="450" /></Field>
             )}
             {form.setMode && (
               <>
@@ -1946,13 +2010,6 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                 <Field label="セット数"><input type="number" className="fm-input" value={form.setQty} onChange={(e) => setForm({ ...form, setQty: e.target.value })} placeholder="10" /></Field>
               </>
             )}
-            <Field label="不良数(枚)"><input type="number" className="fm-input" value={form.defectQty} onChange={(e) => setForm({ ...form, defectQty: e.target.value })} placeholder="10" /></Field>
-            <Field label="不良原因">
-              <select className="fm-input" value={form.defectCause} onChange={(e) => setForm({ ...form, defectCause: e.target.value })}>
-                <option value="">選択してください</option>
-                {DEFECT_CAUSES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
             <Field label={materialAuto && linkedProduct?.materialPerUnit > 0 ? '資材使用量(自動計算)' : '資材使用量(手動)'}>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
@@ -1973,12 +2030,40 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
               </div>
             </Field>
           </div>
+
+          <div style={{ marginBottom: 10, paddingTop: 10, borderTop: `1px dashed ${C.border}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, color: C.textDim, fontWeight: 600 }}>不良項目(任意・複数追加できます)</span>
+              <span className="fm-mono" style={{ fontSize: 12, color: totalDefectQty > 0 ? C.red : C.textFaint }}>合計 {fmt(totalDefectQty)}枚</span>
+            </div>
+            {form.defectItems.length === 0 && (
+              <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 8 }}>不良がなければ何も追加しなくてOKです。</div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+              {form.defectItems.map((d, idx) => (
+                <div key={d.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select className="fm-input" style={{ flex: 1 }} value={d.cause} onChange={(e) => updateDefectItem(idx, 'cause', e.target.value)}>
+                    <option value="">原因を選択</option>
+                    {DEFECT_CAUSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <input type="number" className="fm-input" style={{ width: 110 }} value={d.qty} onChange={(e) => updateDefectItem(idx, 'qty', e.target.value)} placeholder="数量" />
+                  <IconBtn onClick={() => removeDefectItem(idx)} title="この項目を削除" danger />
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addDefectItem}
+              className="fm-btn"
+              style={{ background: C.panelAlt2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            ><Plus size={13} /> 不良項目を追加</button>
+          </div>
           {linkedLot && unitLabel(linkedLot.unit) === '本' && (
             <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 8 }}>この資材は2本一組で機械にセットする運用のため、通常は2の倍数(2本・4本…)で記録します。</div>
           )}
           {form.setMode && selectedSetProduct && form.setQty !== '' && (
             <div style={{ fontSize: 12, color: C.teal, marginBottom: 8 }}>
-              📦 {fmt(form.setQty)}セット × {fmt(selectedSetProduct.piecesPerSet)}枚 = バラ換算{fmt(baraEquivalent)}枚として検品・たたみ実績(WIP)を記録し、完成品在庫は「{selectedSetProduct.productName}」に{fmt(form.setQty)}セット加算されます(バラ品の完成品在庫は増えません)。
+              📦 {fmt(form.setQty)}セット × {fmt(selectedSetProduct.piecesPerSet)}枚 = バラ換算{fmt(baraEquivalent)}枚として実績を記録し、完成品在庫は「{selectedSetProduct.productName}」に{fmt(form.setQty)}セット加算されます(バラ品の完成品在庫は増えません)。
             </div>
           )}
           {linkedProduct?.materialPerUnit > 0 && !materialAuto && (
@@ -2029,15 +2114,15 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>担当者別 作業実績</div>
         <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>どの計画に対して誰が何個作業したかの集計です。</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 640 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 560 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['計画番号', '製品名', '担当者', '機械上がり合計', 'たたみ済み合計', '不良合計'].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+              {['計画番号', '製品名', '担当者', '完成合計', '不良合計'].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
             {workerOrderStats.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 14, color: C.textFaint }}>まだ実績記録がありません。</td></tr>
+              <tr><td colSpan={5} style={{ padding: 14, color: C.textFaint }}>まだ実績記録がありません。</td></tr>
             )}
             {workerOrderStats.map((w) => {
               const o = orderById(w.orderId);
@@ -2046,7 +2131,6 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                   <td className="fm-mono" style={{ padding: '8px' }}>{o?.planNo || '—'}</td>
                   <td style={{ padding: '8px' }}>{o?.productName || '—'}</td>
                   <td style={{ padding: '8px', display: 'flex', alignItems: 'center', gap: 6 }}><User size={13} color={C.textDim} />{w.worker}</td>
-                  <td className="fm-mono" style={{ padding: '8px' }}>{fmt(w.machineUp)}</td>
                   <td className="fm-mono" style={{ padding: '8px', color: C.green }}>{fmt(w.folded)}</td>
                   <td className="fm-mono" style={{ padding: '8px', color: w.defect > 0 ? C.red : C.textDim }}>{fmt(w.defect)}</td>
                 </tr>
@@ -2058,10 +2142,10 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>実績記録一覧</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 780 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['日付', 'ライン', '計画', '担当者', '機械上がり', '検品・たたみ済', '不良', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+              {['日付', 'ライン', '計画', '担当者', '時間', '完成数', '不良', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -2074,12 +2158,25 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                 <td style={{ padding: '8px' }}>{lineById(r.lineId)?.name || '—'}</td>
                 <td style={{ padding: '8px' }}>{orderById(r.orderId)?.planNo || '—'}</td>
                 <td style={{ padding: '8px' }}>{r.worker || '—'}</td>
-                <td className="fm-mono" style={{ padding: '8px' }}>{fmt(r.machineUpQty)}</td>
+                <td className="fm-mono" style={{ padding: '8px', fontSize: 12, color: C.textDim, whiteSpace: 'nowrap' }}>
+                  {r.startTime || r.endTime ? `${r.startTime || '?'}〜${r.endTime || '?'}` : '—'}
+                </td>
                 <td className="fm-mono" style={{ padding: '8px' }}>
                   {fmt(r.foldedQty)}
                   {r.setProductId && r.setQty ? <span style={{ fontSize: 11, color: C.textFaint }}> ({fmt(r.setQty)}セット)</span> : null}
                 </td>
-                <td className="fm-mono" style={{ padding: '8px', color: r.defectQty > 0 ? C.red : C.textDim }}>{fmt(r.defectQty)}</td>
+                <td style={{ padding: '8px' }}>
+                  {num(r.defectQty) > 0 ? (
+                    <div>
+                      <span className="fm-mono" style={{ color: C.red }}>{fmt(r.defectQty)}</span>
+                      {Array.isArray(r.defectItems) && r.defectItems.length > 0 && (
+                        <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>
+                          {r.defectItems.map((d, i) => `${d.cause || '未分類'}:${fmt(d.qty)}`).join(' / ')}
+                        </div>
+                      )}
+                    </div>
+                  ) : <span className="fm-mono" style={{ color: C.textDim }}>0</span>}
+                </td>
                 <td style={{ padding: '8px', display: 'flex', gap: 2 }}>
                   {isEditor && <IconBtn onClick={() => startEdit(r)} title="編集" icon={Pencil} />}
                   {isEditor && <IconBtn onClick={() => removeRecord(r.id)} title="削除" danger />}
@@ -2425,6 +2522,56 @@ function CalendarTab({ data, lineById, orderById, orderStats, productById }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* タブ管理タブ                                                         */
+/* ------------------------------------------------------------------ */
+function SettingsTab({ TABS, tabOrder, updateTabOrder, resetTabOrder, isEditor }) {
+  const ordered = [
+    ...tabOrder.map((id) => TABS.find((t) => t.id === id)).filter(Boolean),
+    ...TABS.filter((t) => !tabOrder.includes(t.id)),
+  ];
+
+  const move = (index, dir) => {
+    const target = index + dir;
+    if (target < 0 || target >= ordered.length) return;
+    const newOrder = ordered.map((t) => t.id);
+    [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
+    updateTabOrder(newOrder);
+  };
+
+  if (!isEditor) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <LockedNotice text="タブの並び替えにはログインが必要です。" />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Panel style={{ padding: 16 }}>
+        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>タブの並び替え</div>
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>上下ボタンでタブの表示順を変更できます。よく使うタブを左側(上)に置くと使いやすくなります。</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+          {ordered.map((t, i) => {
+            const Icon = t.icon;
+            return (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.panelAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px' }}>
+                <span className="fm-mono" style={{ fontSize: 11, color: C.textFaint, minWidth: 20 }}>{i + 1}</span>
+                <Icon size={15} color={C.teal} />
+                <span style={{ fontSize: 13, flex: 1 }}>{t.label}</span>
+                <IconBtn onClick={() => move(i, -1)} title="上へ" icon={ArrowUp} />
+                <IconBtn onClick={() => move(i, 1)} title="下へ" icon={ArrowDown} />
+              </div>
+            );
+          })}
+        </div>
+        <PrimaryButton onClick={resetTabOrder} style={{ background: C.panelAlt2, color: C.text }}>初期の並びに戻す</PrimaryButton>
+      </Panel>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* 品質管理タブ                                                         */
 /* ------------------------------------------------------------------ */
 function QualityTab({ data, lineById, orderById }) {
@@ -2435,12 +2582,17 @@ function QualityTab({ data, lineById, orderById }) {
 
   const byCause = useMemo(() => {
     const map = {};
-    defectRecords.forEach((r) => {
-      const key = r.defectCause || '未分類';
-      map[key] = (map[key] || 0) + num(r.defectQty);
+    data.records.forEach((r) => {
+      const items = Array.isArray(r.defectItems) && r.defectItems.length > 0
+        ? r.defectItems
+        : (num(r.defectQty) > 0 ? [{ cause: r.defectCause, qty: r.defectQty }] : []);
+      items.forEach((it) => {
+        const key = it.cause || '未分類';
+        map[key] = (map[key] || 0) + num(it.qty);
+      });
     });
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [defectRecords]);
+  }, [data.records]);
 
   const chartColors = [C.red, C.amber, C.teal, C.green, C.textDim, C.borderLight];
 
@@ -2477,23 +2629,33 @@ function QualityTab({ data, lineById, orderById }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 700 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['日付', 'ライン', '計画', '不良数', '原因', '備考'].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+              {['日付', 'ライン', '計画', '不良数', '内訳'].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
             {defectRecords.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: 14, color: C.textFaint }}>不良記録がありません。</td></tr>
+              <tr><td colSpan={5} style={{ padding: 14, color: C.textFaint }}>不良記録がありません。</td></tr>
             )}
-            {[...defectRecords].sort((a, b) => (a.date < b.date ? 1 : -1)).map((r) => (
-              <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                <td className="fm-mono" style={{ padding: '8px' }}>{r.date}</td>
-                <td style={{ padding: '8px' }}>{lineById(r.lineId)?.name || '—'}</td>
-                <td style={{ padding: '8px' }}>{orderById(r.orderId)?.planNo || '—'}</td>
-                <td className="fm-mono" style={{ padding: '8px', color: C.red }}>{fmt(r.defectQty)}</td>
-                <td style={{ padding: '8px' }}><Badge tone="red">{r.defectCause || '未分類'}</Badge></td>
-                <td style={{ padding: '8px', color: C.textDim }}>{r.defectNote || '—'}</td>
-              </tr>
-            ))}
+            {[...defectRecords].sort((a, b) => (a.date < b.date ? 1 : -1)).map((r) => {
+              const items = Array.isArray(r.defectItems) && r.defectItems.length > 0
+                ? r.defectItems
+                : (num(r.defectQty) > 0 ? [{ cause: r.defectCause, qty: r.defectQty }] : []);
+              return (
+                <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td className="fm-mono" style={{ padding: '8px' }}>{r.date}</td>
+                  <td style={{ padding: '8px' }}>{lineById(r.lineId)?.name || '—'}</td>
+                  <td style={{ padding: '8px' }}>{orderById(r.orderId)?.planNo || '—'}</td>
+                  <td className="fm-mono" style={{ padding: '8px', color: C.red }}>{fmt(r.defectQty)}</td>
+                  <td style={{ padding: '8px' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {items.map((it, i) => (
+                        <Badge key={i} tone="red">{it.cause || '未分類'} {fmt(it.qty)}</Badge>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </Panel>

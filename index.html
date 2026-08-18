@@ -697,7 +697,7 @@ function App() {
         <ProductionTab data={data} addRecord={addRecord} updateRecord={updateRecord} removeRecord={removeRecord} lineById={lineById} orderById={orderById} orderStats={orderStats} productById={productById} lotById={lotById} isEditor={isEditor} />
       )}
       {tab === 'calendar' && (
-        <CalendarTab data={data} lineById={lineById} orderById={orderById} orderStats={orderStats} />
+        <CalendarTab data={data} lineById={lineById} orderById={orderById} orderStats={orderStats} productById={productById} />
       )}
       {tab === 'quality' && (
         <QualityTab data={data} lineById={lineById} orderById={orderById} />
@@ -779,13 +779,15 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {completedPlans.map(({ o, st }) => {
               const so = salesOrderById(o.salesOrderId);
+              const planProduct = o.productId ? productById(o.productId) : null;
+              const unitLabel3 = planProduct?.isSet ? 'セット' : '枚';
               return (
                 <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, background: 'rgba(79,179,116,0.08)', borderRadius: 6, padding: '6px 10px', flexWrap: 'wrap' }}>
                   <CheckCircle2 size={13} color={C.green} />
                   <span style={{ fontWeight: 600 }}>{o.planNo}</span>
                   <span style={{ color: C.textDim }}>{o.productName}</span>
                   {so && <span style={{ fontSize: 11, color: C.textFaint }}>({so.customerName}向け)</span>}
-                  <span className="fm-mono" style={{ marginLeft: 'auto', color: C.green }}>{fmt(st.folded)} / {fmt(o.targetQty)}枚</span>
+                  <span className="fm-mono" style={{ marginLeft: 'auto', color: C.green }}>{fmt(st.folded)} / {fmt(o.targetQty)}{unitLabel3}</span>
                 </div>
               );
             })}
@@ -1433,7 +1435,9 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
                 ))}
               </select>
             </Field>
-            <Field label="目標数量(枚)"><input type="number" className="fm-input" value={form.targetQty} onChange={(e) => setForm({ ...form, targetQty: e.target.value })} placeholder="5000" /></Field>
+            <Field label={selectedProduct?.isSet ? '目標数量(セット)' : '目標数量(枚)'}>
+              <input type="number" className="fm-input" value={form.targetQty} onChange={(e) => setForm({ ...form, targetQty: e.target.value })} placeholder={selectedProduct?.isSet ? '500' : '5000'} />
+            </Field>
             <Field label="開始日"><input type="date" className="fm-input" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></Field>
             <Field label="終了日(納期)"><input type="date" className="fm-input" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
           </div>
@@ -1447,8 +1451,8 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
             </div>
           )}
           {selectedProduct?.isSet && (
-            <div style={{ color: C.amber, fontSize: 12, marginBottom: 8 }}>
-              ⚠ この商品は「セット品」です。生産計画・実績はバラの現物枚数で管理するため、通常はバラ品(元になる商品)を選んでください。セットは商品マスタの「セットを組む」から作成できます。
+            <div style={{ color: C.teal, fontSize: 12, marginBottom: 8 }}>
+              📦 この商品は「セット品」です。この計画自体でセット単位の完成品を作る場合はこのままでOKです(目標数量・実績はセット単位で記録してください)。バラ品を作ってから後でセットに組む場合は、バラ品(元になる商品)を選んでください。
             </div>
           )}
           {estimatedHours !== null && (
@@ -1501,6 +1505,8 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
               const lot = lotById(o.lotId);
               const so = salesOrderById(o.salesOrderId);
               const done = status === '完了';
+              const planProduct = o.productId ? productById(o.productId) : null;
+              const unitLabel3 = planProduct?.isSet ? 'セット' : '枚';
               return (
                 <tr key={o.id} style={{ borderBottom: `1px solid ${C.border}`, background: o.id === editingId ? C.tealDim + '55' : done ? 'rgba(79,179,116,0.08)' : 'transparent' }}>
                   <td className="fm-mono" style={{ padding: '8px' }}>{o.planNo}</td>
@@ -1511,7 +1517,7 @@ function PlanTab({ data, orderStats, addOrder, updateOrder, removeOrder, lineByI
                   <td style={{ padding: '8px', minWidth: 160 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ flex: 1 }}><ProgressBar ratio={ratio} color={done ? C.green : C.teal} /></div>
-                      <span className="fm-mono" style={{ fontSize: 11, color: C.textDim, whiteSpace: 'nowrap' }}>{fmt(st.folded)}/{fmt(o.targetQty)}</span>
+                      <span className="fm-mono" style={{ fontSize: 11, color: C.textDim, whiteSpace: 'nowrap' }}>{fmt(st.folded)}/{fmt(o.targetQty)}{unitLabel3}</span>
                     </div>
                   </td>
                   <td className="fm-mono" style={{ padding: '8px', fontSize: 12, whiteSpace: 'nowrap' }}>{planStart(o)} 〜 {planEnd(o)}</td>
@@ -2001,6 +2007,8 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {[...data.orders].map((o) => ({ o, st: orderStats(o.id) })).sort((a, b) => (a.st.folded >= a.o.targetQty) - (b.st.folded >= b.o.targetQty)).map(({ o, st }) => {
             const done = o.targetQty > 0 && st.folded >= o.targetQty;
+            const planProduct = o.productId ? productById(o.productId) : null;
+            const unitLabel3 = planProduct?.isSet ? 'セット' : '枚';
             return (
               <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: done ? 'rgba(79,179,116,0.08)' : C.panelAlt, border: `1px solid ${done ? C.greenDim : C.border}`, borderRadius: 8, padding: '10px 14px' }}>
                 <span style={{ fontWeight: 600, fontSize: 13, minWidth: 160, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2009,7 +2017,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                 </span>
                 <div className="fm-mono" style={{ display: 'flex', gap: 14, fontSize: 12 }}>
                   <span>機械上がり <b style={{ color: C.text }}>{fmt(st.machineUp)}</b></span>
-                  <span style={{ color: C.green }}>完成 <b>{fmt(st.folded)}</b>/{fmt(o.targetQty)}</span>
+                  <span style={{ color: C.green }}>完成 <b>{fmt(st.folded)}</b>/{fmt(o.targetQty)}{unitLabel3}</span>
                 </div>
                 {done && <Badge tone="green">完了</Badge>}
               </div>
@@ -2088,7 +2096,7 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
 /* ------------------------------------------------------------------ */
 /* カレンダータブ                                                       */
 /* ------------------------------------------------------------------ */
-function CalendarTab({ data, lineById, orderById, orderStats }) {
+function CalendarTab({ data, lineById, orderById, orderStats, productById }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -2305,13 +2313,17 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
                   <CheckCircle2 size={13} color={C.green} /> この日に完了した計画
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {completedOnSelected.map((o) => (
-                    <div key={o.id} className="fm-mono" style={{ fontSize: 12, background: 'rgba(79,179,116,0.08)', borderRadius: 6, padding: '6px 10px', display: 'flex', gap: 10, alignItems: 'center' }}>
-                      <span style={{ fontFamily: 'Inter', fontWeight: 600 }}>{o.planNo}</span>
-                      <span style={{ fontFamily: 'Inter', color: C.textDim }}>{o.productName}</span>
-                      <span style={{ color: C.green, marginLeft: 'auto' }}>{fmt(o.targetQty)}枚 完成</span>
-                    </div>
-                  ))}
+                  {completedOnSelected.map((o) => {
+                    const planProduct = o.productId ? productById(o.productId) : null;
+                    const unitLabel3 = planProduct?.isSet ? 'セット' : '枚';
+                    return (
+                      <div key={o.id} className="fm-mono" style={{ fontSize: 12, background: 'rgba(79,179,116,0.08)', borderRadius: 6, padding: '6px 10px', display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <span style={{ fontFamily: 'Inter', fontWeight: 600 }}>{o.planNo}</span>
+                        <span style={{ fontFamily: 'Inter', color: C.textDim }}>{o.productName}</span>
+                        <span style={{ color: C.green, marginLeft: 'auto' }}>{fmt(o.targetQty)}{unitLabel3} 完成</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -2328,11 +2340,13 @@ function CalendarTab({ data, lineById, orderById, orderStats }) {
                     const done = o.targetQty > 0 && st.folded >= o.targetQty;
                     const late = !done && selected < todayStr();
                     const tone = done ? 'green' : late ? 'red' : 'amber';
+                    const planProduct = o.productId ? productById(o.productId) : null;
+                    const unitLabel3 = planProduct?.isSet ? 'セット' : '枚';
                     return (
                       <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: C.panelAlt, borderRadius: 6, padding: '8px 10px' }}>
                         <span style={{ fontSize: 12, fontWeight: 600, minWidth: 140 }}>{o.planNo} <span style={{ color: C.textDim, fontWeight: 400 }}>{o.productName}</span></span>
                         <div style={{ flex: 1, minWidth: 100, maxWidth: 200 }}><ProgressBar ratio={ratio} color={done ? C.green : late ? C.red : C.amber} /></div>
-                        <span className="fm-mono" style={{ fontSize: 11, color: C.textDim }}>実績 {fmt(st.folded)} / 計画 {fmt(o.targetQty)}枚</span>
+                        <span className="fm-mono" style={{ fontSize: 11, color: C.textDim }}>実績 {fmt(st.folded)} / 計画 {fmt(o.targetQty)}{unitLabel3}</span>
                         <Badge tone={tone}>{done ? '達成' : late ? '未達(納期超過)' : '進行中'}</Badge>
                       </div>
                     );

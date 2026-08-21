@@ -179,6 +179,20 @@ const lotTotalCostJPY = (lot) => lotUnitCostJPY(lot) * num(lot.initialLength);
 const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 const planStart = (o) => o.startDate || o.dueDate;
 const planEnd = (o) => o.dueDate || o.startDate;
+// 開始時刻・終了時刻から所要時間の文字列を計算(日をまたぐ場合も考慮)
+const workDuration = (start, end) => {
+  if (!start || !end) return null;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  if ([sh, sm, eh, em].some((v) => Number.isNaN(v))) return null;
+  let diff = (eh * 60 + em) - (sh * 60 + sm);
+  if (diff < 0) diff += 24 * 60;
+  const h = Math.floor(diff / 60);
+  const m = diff % 60;
+  if (h === 0) return `${m}分`;
+  if (m === 0) return `${h}時間`;
+  return `${h}時間${m}分`;
+};
 const planSpanDays = (o) => {
   const s = parseDate(planStart(o));
   const e = parseDate(planEnd(o));
@@ -1946,22 +1960,9 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
     }
   };
 
-  const workerOrderStats = useMemo(() => {
-    const map = {};
-    data.records.forEach((r) => {
-      const key = `${r.orderId}||${r.worker || '未記入'}`;
-      if (!map[key]) map[key] = { orderId: r.orderId, worker: r.worker || '未記入', folded: 0, defect: 0 };
-      map[key].folded += num(r.foldedQty);
-      map[key].defect += num(r.defectQty);
-    });
-    return Object.values(map).sort((a, b) => {
-      const an = orderById(a.orderId)?.planNo || '';
-      const bn = orderById(b.orderId)?.planNo || '';
-      return an.localeCompare(bn) || a.worker.localeCompare(b.worker);
-    });
-  }, [data.records, orderById]);
-
   const sortedRecords = [...data.records].sort((a, b) => (a.date < b.date ? 1 : -1));
+  const [showAllRecords, setShowAllRecords] = useState(false);
+  const visibleRecords = showAllRecords ? sortedRecords : sortedRecords.slice(0, 20);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -2090,20 +2091,24 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
       <Panel style={{ padding: 16 }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>計画別 進捗サマリ</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {[...data.orders].map((o) => ({ o, st: orderStats(o.id) })).sort((a, b) => (a.st.folded >= a.o.targetQty) - (b.st.folded >= b.o.targetQty)).map(({ o, st }) => {
+          {[...data.orders].map((o) => ({ o, st: orderStats(o.id) })).sort((a, b) => a.o.planNo.localeCompare(b.o.planNo)).map(({ o, st }) => {
             const done = o.targetQty > 0 && st.folded >= o.targetQty;
             const planProduct = o.productId ? productById(o.productId) : null;
             const unitLabel3 = planProduct?.isSet ? 'セット' : '枚';
             return (
               <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: done ? 'rgba(79,179,116,0.08)' : C.panelAlt, border: `1px solid ${done ? C.greenDim : C.border}`, borderRadius: 8, padding: '10px 14px' }}>
-                <span style={{ fontWeight: 600, fontSize: 13, minWidth: 160, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, minWidth: 190, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {done && <CheckCircle2 size={14} color={C.green} />}
-                  {o.planNo} <span style={{ color: C.textDim, fontWeight: 400 }}>{o.productName}</span>
+                  {o.planNo}
+                  {planProduct?.productCode && <span className="fm-mono" style={{ fontSize: 11, color: C.textFaint }}>{planProduct.productCode}</span>}
+                  <span style={{ color: C.textDim, fontWeight: 400 }}>{o.productName}</span>
                 </span>
+                <span style={{ fontSize: 12, color: C.textFaint }}>{lineById(o.lineId)?.name || '—'}</span>
                 <div className="fm-mono" style={{ display: 'flex', gap: 14, fontSize: 12 }}>
-                  <span>機械上がり <b style={{ color: C.text }}>{fmt(st.machineUp)}</b></span>
                   <span style={{ color: C.green }}>完成 <b>{fmt(st.folded)}</b>/{fmt(o.targetQty)}{unitLabel3}</span>
+                  {st.defect > 0 && <span style={{ color: C.red }}>不良 <b>{fmt(st.defect)}</b></span>}
                 </div>
+                <span style={{ fontSize: 11, color: C.textFaint, marginLeft: 'auto' }}>納期 {planEnd(o)}</span>
                 {done && <Badge tone="green">完了</Badge>}
               </div>
             );
@@ -2112,54 +2117,28 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
       </Panel>
 
       <Panel style={{ padding: 16, overflowX: 'auto' }}>
-        <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>担当者別 作業実績</div>
-        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 12 }}>どの計画に対して誰が何個作業したかの集計です。</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 560 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['計画番号', '製品名', '担当者', '完成合計', '不良合計'].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {workerOrderStats.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: 14, color: C.textFaint }}>まだ実績記録がありません。</td></tr>
-            )}
-            {workerOrderStats.map((w) => {
-              const o = orderById(w.orderId);
-              return (
-                <tr key={`${w.orderId}-${w.worker}`} style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <td className="fm-mono" style={{ padding: '8px' }}>{o?.planNo || '—'}</td>
-                  <td style={{ padding: '8px' }}>{o?.productName || '—'}</td>
-                  <td style={{ padding: '8px', display: 'flex', alignItems: 'center', gap: 6 }}><User size={13} color={C.textDim} />{w.worker}</td>
-                  <td className="fm-mono" style={{ padding: '8px', color: C.green }}>{fmt(w.folded)}</td>
-                  <td className="fm-mono" style={{ padding: '8px', color: w.defect > 0 ? C.red : C.textDim }}>{fmt(w.defect)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Panel>
-
-      <Panel style={{ padding: 16, overflowX: 'auto' }}>
         <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>実績記録一覧</div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 780 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.textDim, borderBottom: `1px solid ${C.border}` }}>
-              {['日付', 'ライン', '計画', '担当者', '時間', '完成数', '不良', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
+              {['日付', 'ライン', '計画', '商品コード', '担当者', 'かかった時間', '完成数', '不良', ''].map((h) => <th key={h} style={{ padding: '6px 8px', fontWeight: 500 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
             {sortedRecords.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 14, color: C.textFaint }}>実績記録がありません。</td></tr>
+              <tr><td colSpan={9} style={{ padding: 14, color: C.textFaint }}>実績記録がありません。</td></tr>
             )}
-            {sortedRecords.map((r) => (
+            {visibleRecords.map((r) => {
+              const planProduct = orderById(r.orderId)?.productId ? productById(orderById(r.orderId).productId) : null;
+              return (
               <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}`, background: r.id === editingId ? C.tealDim + '55' : 'transparent' }}>
                 <td className="fm-mono" style={{ padding: '8px' }}>{r.date}</td>
                 <td style={{ padding: '8px' }}>{lineById(r.lineId)?.name || '—'}</td>
                 <td style={{ padding: '8px' }}>{orderById(r.orderId)?.planNo || '—'}</td>
+                <td className="fm-mono" style={{ padding: '8px', fontSize: 12, color: C.textDim }}>{planProduct?.productCode || '—'}</td>
                 <td style={{ padding: '8px' }}>{r.worker || '—'}</td>
                 <td className="fm-mono" style={{ padding: '8px', fontSize: 12, color: C.textDim, whiteSpace: 'nowrap' }}>
-                  {r.startTime || r.endTime ? `${r.startTime || '?'}〜${r.endTime || '?'}` : '—'}
+                  {workDuration(r.startTime, r.endTime) || '—'}
                 </td>
                 <td className="fm-mono" style={{ padding: '8px' }}>
                   {fmt(r.foldedQty)}
@@ -2182,9 +2161,24 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
                   {isEditor && <IconBtn onClick={() => removeRecord(r.id)} title="削除" danger />}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
+        {sortedRecords.length > visibleRecords.length && (
+          <div style={{ textAlign: 'center', marginTop: 10 }}>
+            <PrimaryButton onClick={() => setShowAllRecords(true)} style={{ background: C.panelAlt2, color: C.text }}>
+              もっと見る(残り{sortedRecords.length - visibleRecords.length}件)
+            </PrimaryButton>
+          </div>
+        )}
+        {showAllRecords && sortedRecords.length > 20 && (
+          <div style={{ textAlign: 'center', marginTop: 10 }}>
+            <PrimaryButton onClick={() => setShowAllRecords(false)} style={{ background: C.panelAlt2, color: C.text }}>
+              最新20件だけ表示
+            </PrimaryButton>
+          </div>
+        )}
       </Panel>
     </div>
   );

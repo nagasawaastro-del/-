@@ -497,9 +497,17 @@ function App() {
       machineUp: acc.machineUp + num(r.machineUpQty),
       folded: acc.folded + num(r.foldedQty),
     }), { machineUp: 0, folded: 0 });
-    const setsCompleted = so
-      ? recs.filter((r) => r.setProductId === so.productId).reduce((sum, r) => sum + num(r.setQty), 0)
-      : 0;
+    // セット品の受注の場合、バラ換算の完成数(folded)を1セットあたりの枚数で割って算出する。
+    // これにより「セット単位入力」のチェックの有無に関わらず、生産計画で進んだ分がそのまま受注の進捗に反映される。
+    let setsCompleted = 0;
+    if (so) {
+      const soProduct = (data?.products || []).find((p) => p.id === so.productId);
+      if (soProduct?.isSet && num(soProduct.piecesPerSet) > 0) {
+        setsCompleted = Math.floor(base.folded / num(soProduct.piecesPerSet));
+      } else {
+        setsCompleted = recs.filter((r) => r.setProductId === so.productId).reduce((sum, r) => sum + num(r.setQty), 0);
+      }
+    }
     return { ...base, setsCompleted };
   }, [data]);
 

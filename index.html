@@ -558,14 +558,20 @@ function App() {
   const removeOrder = (id) => setData((d) => ({ ...d, orders: d.orders.filter((o) => o.id !== id), records: d.records.filter((r) => r.orderId !== id) }));
 
   // 実績が完成品在庫を加算する対象(セット単位入力ならセット品、それ以外は計画の商品自身)を判定
-  const creditTarget = (rec, ord) => {
+  // 実績が完成品在庫に与える影響(セット品への加算・元になるバラ品からの控除、通常は計画の商品への加算)を計算
+  const stockEffects = (d, rec, ord) => {
     if (rec.setProductId && rec.setQty) {
-      return { productId: rec.setProductId, qty: num(rec.setQty) };
+      const effects = [{ productId: rec.setProductId, qty: num(rec.setQty) }];
+      const setProduct = d.products.find((p) => p.id === rec.setProductId);
+      if (setProduct && setProduct.setSourceProductId && num(setProduct.piecesPerSet) > 0) {
+        effects.push({ productId: setProduct.setSourceProductId, qty: -(num(setProduct.piecesPerSet) * num(rec.setQty)) });
+      }
+      return effects;
     }
     if (ord && ord.productId && rec.foldedQty) {
-      return { productId: ord.productId, qty: num(rec.foldedQty) };
+      return [{ productId: ord.productId, qty: num(rec.foldedQty) }];
     }
-    return null;
+    return [];
   };
 
   const addRecord = (rec) => setData((d) => {
@@ -575,10 +581,9 @@ function App() {
     if (ord && ord.lotId && rec.materialUsedLength) {
       lots = d.lots.map((l) => (l.id === ord.lotId ? { ...l, remainingLength: Math.max(0, num(l.remainingLength) - num(rec.materialUsedLength)) } : l));
     }
-    const credit = creditTarget(rec, ord);
-    if (credit) {
-      products = d.products.map((p) => (p.id === credit.productId ? { ...p, finishedStock: num(p.finishedStock) + credit.qty } : p));
-    }
+    stockEffects(d, rec, ord).forEach((eff) => {
+      products = products.map((p) => (p.id === eff.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) + eff.qty) } : p));
+    });
     return { ...d, lots, products, records: [...d.records, { id: uid('R'), ...rec }] };
   });
   const updateRecord = (id, patch) => setData((d) => {
@@ -595,14 +600,12 @@ function App() {
     if (newOrd && newOrd.lotId && merged.materialUsedLength) {
       lots = lots.map((l) => (l.id === newOrd.lotId ? { ...l, remainingLength: Math.max(0, num(l.remainingLength) - num(merged.materialUsedLength)) } : l));
     }
-    const oldCredit = creditTarget(old, oldOrd);
-    if (oldCredit) {
-      products = products.map((p) => (p.id === oldCredit.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - oldCredit.qty) } : p));
-    }
-    const newCredit = creditTarget(merged, newOrd);
-    if (newCredit) {
-      products = products.map((p) => (p.id === newCredit.productId ? { ...p, finishedStock: num(p.finishedStock) + newCredit.qty } : p));
-    }
+    stockEffects(d, old, oldOrd).forEach((eff) => {
+      products = products.map((p) => (p.id === eff.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - eff.qty) } : p));
+    });
+    stockEffects(d, merged, newOrd).forEach((eff) => {
+      products = products.map((p) => (p.id === eff.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) + eff.qty) } : p));
+    });
     return { ...d, lots, products, records: d.records.map((r) => (r.id === id ? merged : r)) };
   });
   const removeRecord = (id) => setData((d) => {
@@ -614,10 +617,9 @@ function App() {
     if (ord && ord.lotId && old.materialUsedLength) {
       lots = lots.map((l) => (l.id === ord.lotId ? { ...l, remainingLength: num(l.remainingLength) + num(old.materialUsedLength) } : l));
     }
-    const credit = creditTarget(old, ord);
-    if (credit) {
-      products = products.map((p) => (p.id === credit.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - credit.qty) } : p));
-    }
+    stockEffects(d, old, ord).forEach((eff) => {
+      products = products.map((p) => (p.id === eff.productId ? { ...p, finishedStock: Math.max(0, num(p.finishedStock) - eff.qty) } : p));
+    });
     return { ...d, lots, products, records: d.records.filter((r) => r.id !== id) };
   });
 
@@ -2064,7 +2066,12 @@ function ProductionTab({ data, addRecord, updateRecord, removeRecord, lineById, 
           )}
           {form.setMode && selectedSetProduct && form.setQty !== '' && (
             <div style={{ fontSize: 12, color: C.teal, marginBottom: 8 }}>
-              📦 {fmt(form.setQty)}セット × {fmt(selectedSetProduct.piecesPerSet)}枚 = バラ換算{fmt(baraEquivalent)}枚として実績を記録し、完成品在庫は「{selectedSetProduct.productName}」に{fmt(form.setQty)}セット加算されます(バラ品の完成品在庫は増えません)。
+              📦 {fmt(form.setQty)}セット × {fmt(selectedSetProduct.piecesPerSet)}枚 = バラ換算{fmt(baraEquivalent)}枚として実績を記録し、完成品在庫は「{selectedSetProduct.productName}」に{fmt(form.setQty)}セット加算、バラ品「{linkedProduct?.productName}」の完成品在庫から{fmt(baraEquivalent)}枚差し引かれます。
+            </div>
+          )}
+          {form.setMode && linkedProduct && baraEquivalent > num(linkedProduct.finishedStock) && (
+            <div style={{ color: C.amber, fontSize: 12, marginBottom: 8 }}>
+              ⚠ バラ品「{linkedProduct.productName}」の完成品在庫(現在{fmt(linkedProduct.finishedStock)}枚)が必要数({fmt(baraEquivalent)}枚)より少ないため、記録すると在庫が0になります。
             </div>
           )}
           {linkedProduct?.materialPerUnit > 0 && !materialAuto && (

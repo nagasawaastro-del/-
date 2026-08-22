@@ -156,6 +156,13 @@ const FONT_STYLE = `
 /* ------------------------------------------------------------------ */
 const uid = (p) => `${p}-${Math.random().toString(36).slice(2, 9)}`;
 const todayStr = () => new Date().toISOString().slice(0, 10);
+// 今日から指定日までの日数(過去ならマイナス)
+const daysUntil = (dateStr) => {
+  if (!dateStr) return null;
+  const today = new Date(`${todayStr()}T00:00:00`);
+  const target = new Date(`${dateStr}T00:00:00`);
+  return Math.round((target - today) / (1000 * 60 * 60 * 24));
+};
 const toDateStr = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 const buildMonthGrid = (year, month) => {
   const firstWeekday = new Date(year, month, 1).getDay();
@@ -784,6 +791,16 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
   const completedPlans = planRows.filter(({ o, st }) => o.targetQty > 0 && st.folded >= o.targetQty);
   const completedToday = completedPlans.filter(({ o }) => data.records.some((r) => r.orderId === o.id && r.date === date));
 
+  // 生産計画が未作成の受注(受注はあるがまだ計画に紐づいていないもの)
+  const unplannedOrders = data.salesOrders.filter((so) => !data.orders.some((o) => o.salesOrderId === so.id));
+
+  // 納期が近い(7日以内)・または納期超過の未完了計画
+  const urgentPlans = planRows
+    .filter(({ o, st }) => !(o.targetQty > 0 && st.folded >= o.targetQty))
+    .map(({ o, st }) => ({ o, st, daysLeft: daysUntil(planEnd(o)) }))
+    .filter(({ daysLeft }) => daysLeft !== null && daysLeft <= 7)
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+
   // 在庫状況(資材・完成品)のサマリー
   const rawMaterialByUnit = data.lots.reduce((map, l) => {
     const label = unitLabel(l.unit);
@@ -820,10 +837,55 @@ function DashboardTab({ data, lineById, orderById, lotById, orderStats, salesOrd
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <StatCard icon={Factory} label="稼働ライン数" value={activeLines} unit={`/ ${data.lines.length}`} tone="teal" />
-        <StatCard icon={Activity} label="本日 機械上がり" value={fmt(totals.machineUp)} unit="枚" tone="teal" />
+        <StatCard icon={CheckCircle2} label="本日の完成数" value={fmt(totals.folded)} unit="枚" tone="teal" />
         <StatCard icon={AlertTriangle} label="不良率" value={defectRate.toFixed(1)} unit="%" tone={defectRate > 5 ? 'red' : 'teal'} />
         <StatCard icon={CheckCircle2} label="完了済み計画" value={completedPlans.length} unit={`/ ${data.orders.length}件`} tone="green" />
       </div>
+
+      {/* 要対応(未計画の受注・納期が近い計画) */}
+      {(unplannedOrders.length > 0 || urgentPlans.length > 0) && (
+        <Panel style={{ padding: 16, border: `1px solid ${C.amberDim || C.border}` }}>
+          <div className="fm-display" style={{ fontSize: 16, fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={16} color={C.amber} /> 要対応
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {unplannedOrders.length > 0 && (
+              <div>
+                <div style={{ fontSize: 12, color: C.textDim, marginBottom: 6 }}>生産計画が未作成の受注({unplannedOrders.length}件)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {unplannedOrders.map((so) => (
+                    <div key={so.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, background: C.panelAlt, borderRadius: 6, padding: '6px 10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600 }}>{so.orderNo}</span>
+                      <span style={{ color: C.textDim }}>{so.customerName} / {so.productName}</span>
+                      <span className="fm-mono" style={{ marginLeft: 'auto', fontSize: 11, color: C.textFaint }}>納期 {so.dueDate}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {urgentPlans.length > 0 && (
+              <div>
+                <div style={{ fontSize: 12, color: C.textDim, marginBottom: 6 }}>納期が近い・超過している未完了の計画({urgentPlans.length}件)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {urgentPlans.map(({ o, st, daysLeft }) => {
+                    const planProduct = o.productId ? productById(o.productId) : null;
+                    const unitLabel4 = planProduct?.isSet ? 'セット' : '枚';
+                    const overdue = daysLeft < 0;
+                    return (
+                      <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, background: overdue ? 'rgba(224,90,90,0.08)' : 'rgba(212,163,74,0.08)', borderRadius: 6, padding: '6px 10px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600 }}>{o.planNo}</span>
+                        <span style={{ color: C.textDim }}>{o.productName}</span>
+                        <span className="fm-mono" style={{ fontSize: 11, color: C.textFaint }}>{fmt(st.folded)}/{fmt(o.targetQty)}{unitLabel4}</span>
+                        <Badge tone={overdue ? 'red' : 'amber'}>{overdue ? `納期${Math.abs(daysLeft)}日超過` : daysLeft === 0 ? '本日納期' : `納期まであと${daysLeft}日`}</Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </Panel>
+      )}
 
       {/* 完了済み計画(ひと目でわかるように) */}
       {completedPlans.length > 0 && (
